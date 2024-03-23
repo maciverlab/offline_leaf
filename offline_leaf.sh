@@ -1,4 +1,10 @@
 #!/bin/bash
+
+# Written by Malcolm A. MacIver
+# Northwestern University
+# https://robotics.northwestern.edu/
+
+
 # Check if an argument was provided
 if [ "$#" -ne 1 ]; then
     echo "offline_leaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file>"
