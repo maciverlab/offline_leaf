@@ -16,6 +16,11 @@ if [ "$#" -ne 1 ]; then
 fi
 
 # Source the provided environment variables file
+if [ -f "$1" ]; then
+  echo "File \"$1\" not found."
+  exit 1
+fi
+
 source "$1"
 
 RED="\033[1;31m"
