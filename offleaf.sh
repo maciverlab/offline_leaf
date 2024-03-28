@@ -1,4 +1,4 @@
-# !/bin/bash
+#!/bin/bash
 
 # Written by Malcolm A. MacIver with assistance from German Espinosa
 # Northwestern University
