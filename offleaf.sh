@@ -48,23 +48,9 @@ function git_pull_background {
 }
 
 function relative_path() {
-    file_path="$2"
-    file_folder=$(dirname "$file_path")
-    file_name=$(basename "$file_path")
-    s=$(
-        cd ${1%%/}
-        pwd
-    )
-    d=$(
-        cd "$file_folder"
-        pwd
-    )
-    b=
-    while [ "${d#$s/}" == "${d}" ]; do
-        s=$(dirname $s)
-        b="../${b}"
-    done
-    echo ${b}${d#$s/}/$file_name
+    prefix="$1"
+    string="$2"
+    echo ${string#"$prefix"}
 }
 
 
