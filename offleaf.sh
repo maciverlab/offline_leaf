@@ -1,5 +1,9 @@
 #!/bin/bash
 
+FSWATCH_OUTPUT_FILE_OVERLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
+last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
+
+
 # Written by Malcolm A. MacIver with assistance from German Espinosa
 # Northwestern University
 # https://robotics.northwestern.edu/
@@ -37,10 +41,10 @@ function git_pull_background {
         fi
 
         if [[ $? -eq 0 ]]; then
-            date > .last_successful_pull
+            date > "$last_successful_pull"
         else
             echo "Error pulling changes from Overleaf."
-            d=$(cat .last_successful_pull)
+            d=$(cat "$last_successful_pull")
             echo "Pull failed: last successful pull at $d"
         fi
         sleep "$GIT_PULL_INTERVAL_SECONDS"
@@ -59,8 +63,8 @@ trap 'terminate_script' SIGINT
 git_pull_background &
 GIT_PULL_PID=$!
 
-if [ ! -f ".last_successful_pull" ]; then
-    echo "No pull yet" >.last_successful_pull
+if [ ! -f "$last_successful_pull" ]; then
+    echo "No pull yet" > "$last_successful_pull"
 fi
 
 function git_operations {
@@ -77,10 +81,10 @@ function git_operations {
     result=$?
     if [[ $result -eq 1 ]]; then
         echo "Error pulling changes from the repository."
-        d=$(cat .last_successful_pull)
+        d=$(cat "$last_successful_pull")
         echo "Pull failed: last successful pull at $d"
     else
-        date >.last_successful_pull
+        date > "$last_successful_pull"
     fi
 
     rel_file=$(relative_path "$GIT_PATH" "$1")
