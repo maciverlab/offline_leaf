@@ -1,4 +1,4 @@
-#!/bin/bash
+# !/bin/bash
 
 # Written by Malcolm A. MacIver with assistance from German Espinosa
 # Northwestern University
@@ -37,7 +37,7 @@ function git_pull_background {
         fi
 
         if [[ $? -eq 0 ]]; then
-            date >.last_succesful_pull
+            date > .last_successful_pull
         else
             echo "Error pulling changes from Overleaf."
             d=$(cat .last_successful_pull)
@@ -144,7 +144,6 @@ function git_operations {
 # Currently, only attending to .tex files. 
 
 $FSWATCH --batch-marker --recursive --extended \
-    --exclude=".*" \
     --include="\\.tex$" \
     "$WATCH_PATH_OVERLEAF" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" &
 
