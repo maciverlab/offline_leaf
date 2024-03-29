@@ -30,6 +30,8 @@ function terminate_script {
     echo
     echo "Terminating background git pull process with PID: $GIT_PULL_PID"
     kill $GIT_PULL_PID
+    rm "$FSWATCH_OUTPUT_FILE_OVERLEAF"
+    rm "$last_successful_pull"
     exit
 }
 
