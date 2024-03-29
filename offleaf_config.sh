@@ -20,6 +20,4 @@ DEBOUNCE_SECONDS=15 # After an fswatch event is detected, wait this long before 
 FSWATCH="/opt/homebrew/bin/fswatch"
 CONVERT="/opt/homebrew/bin/convert"
 
-# Temp files and paths
-FSWATCH_OUTPUT_FILE_OVERLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
 
