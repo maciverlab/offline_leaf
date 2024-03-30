@@ -6,7 +6,7 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 # STEPS FOR USE
 
 1. Install git and several needed tools. In macOS, using MacPorts, this would involve
-    `xcode-select --install`
+    `xcode-select --install` (to get git)
     install macports from https://www.macports.org/, then:
     `sudo port install git ghostscript fswatch convert`
     For Windows machines, a useful terminal with git functionality can be obtained via https://gitforwindows.org/.
