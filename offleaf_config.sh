@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-GIT_PATH="/Users/maciver/Downloads/offline_leaf_test/65e9bfc9957f46e743210a77/"
+GIT_PATH="/Users/maciver/Downloads/6604ab05a1dfc483ce5bbb9c/"
 
 
 WATCH_PATH_OVERLEAF="$GIT_PATH"
