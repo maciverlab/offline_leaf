@@ -108,9 +108,14 @@ function git_operations {
     fi
 
     git -C "$GIT_PATH" gc # Detheridge @Overleaf to fix hanging push
-    git -C "$GIT_PATH" push
-    if [[ $? -ne 0 ]]; then
-        echo "Error pushing changes to the repository. Will apply stash"
+    output=$(git -C "$GIT_PATH" push 2>&1)  # Redirect stderr to stdout to capture all output
+    exit_status=$?
+    if [[ $output == *"failed to push"* ]]; then
+        echo -e "${RED}Merge conflict detected."
+    fi
+
+    if [[ $exit_status -ne 0 ]]; then
+        echo -e "Error pushing changes to the repository. Will apply stash${RESET}"
         git -C "$GIT_PATH" stash
         git -C "$GIT_PATH" pull
         if [[ $? -eq 0 ]]; then
@@ -122,15 +127,15 @@ function git_operations {
         git -C "$GIT_PATH" push
         echo " "
         echo " "
-        echo "${RED}Check $rel_file for merge conflict text. The format is as follows: "
+        echo -e "${RED}Check $rel_file for merge conflict text. The format is as follows: "
         echo " "
-        echo "<<<<<<< HEAD"
-        echo "[Your local version of the conflicted content]"
-        echo "======="
-        echo "[The conflicting content from the branch you're merging or pulling from]"
-        echo ">>>>>>> [commit hash of the incoming changes]"
+        echo -e "<<<<<<< HEAD"
+        echo -e "[Your local version of the conflicted content]"
+        echo -e "======="
+        echo -e "[The conflicting content from the branch you're merging or pulling from]"
+        echo -e ">>>>>>> [commit hash of the incoming changes]"
         echo " "
-        echo "Manually resolve to the preferred edit.${RESET}"
+        echo -e "Manually resolve to the preferred edit.${RESET}"
         echo " "
         echo " "
     fi
