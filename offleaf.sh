@@ -109,7 +109,6 @@ function git_operations {
 
     git -C "$GIT_PATH" gc # Detheridge @Overleaf to fix hanging push
     output=$(git -C "$GIT_PATH" push 2>&1)  # Redirect stderr to stdout to capture all output
-    exit_status=$?
     if [[ $output == *"failed to push"* ]]; then
         echo -e "${RED}Merge conflict detected during push to Overleaf repository."
         echo -e "Will apply stash.${RESET}"
