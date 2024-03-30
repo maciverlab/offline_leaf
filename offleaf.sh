@@ -142,7 +142,7 @@ function git_operations {
 # Currently, only attending to .tex files. 
 
 $FSWATCH --batch-marker --recursive --extended \
-    --exclude=".*" \
+    --exclude=".*" \   # Remove for use with linux fswatch
     --include="\\.tex$" \
     "$WATCH_PATH_OVERLEAF" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" &
 
