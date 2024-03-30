@@ -6,8 +6,8 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 # STEPS FOR USE
 
 1. Install git and several needed tools. In macOS, using MacPorts, this would involve
-    `xcode-select --install` (to get git)
-    install macports from https://www.macports.org/, then:
+    `xcode-select --install` (to get git). Then
+    install macports from https://www.macports.org/. Finally:
     `sudo port install git ghostscript fswatch convert`
     For Windows machines, a useful terminal with git functionality can be obtained via https://gitforwindows.org/.
 3. Go to your project in Overleaf
