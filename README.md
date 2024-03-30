@@ -6,8 +6,8 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 # STEPS FOR USE
 
 1. Install git and several needed tools. In macOS, using MacPorts, this would involve
-    `xcode-select --install`
-    install macports from https://www.macports.org/, then:
+    `xcode-select --install` (to get git). Then
+    install macports from https://www.macports.org/. Finally:
     `sudo port install git ghostscript fswatch convert`
     For Windows machines, a useful terminal with git functionality can be obtained via https://gitforwindows.org/.
 3. Go to your project in Overleaf
@@ -17,7 +17,7 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 7. Modify `offleaf_config.sh` to contain the correct path to your Overleaf repository.
 8. do `chmod +x offleaf.sh' and 'chmod +x offleaf_config.sh`.
 9. cd into your Overleaf repository, and do `git config pull.rebase false` and `git config http.postBuffer 10485760`. To skip doing this for every Overleaf project you are working on, you can do `git config --global` with these two settings.
-10. Add a .gitignore file to your Overleaf repository. I've included a sample one to include in this repository: to use, just copy its contents into a file called .gitignore. Then do `git add .gitignore`, then `git commit -m 'new .gitignore'`, and finally 'git push .gitignore`. 
+10. Add a .gitignore file to your Overleaf repository. I've included a sample one to include in this repository: to use, just copy its contents into a file called .gitignore. Then do `git add .gitignore`, then `git commit -m 'new .gitignore'`, and finally `git push .gitignore`. 
 12. Now from whatever directory you placed the script, you can do `offleaf.sh /path_to_configuration_file/offleaf_config.sh`.
 
 
