@@ -9,24 +9,31 @@
 # file changes to the Overleaf repository
 
 FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
+last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
 
-# Check if an argument was provided
-if [ "$#" -ne 1 ]; then
-    echo "figleaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file>"
+# Check if at least one argument was provided
+if [ "$#" -lt 1 ]; then
+    echo "figleaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file> [-push]"
     exit 1
 fi
 
-# Source the provided environment variables file
+# Ensure the first argument is a valid file reference
 if [ ! -f "$1" ]; then
-  echo "File \"$1\" not found."
-  exit 1
+    echo "File \"$1\" not found."
+    exit 1
+fi
+
+# If a second argument is provided, check if it's "-push"
+if [ "$#" -gt 1 ] && [ "$2" != "-push" ]; then
+    echo "Invalid second argument. Only '-push' is accepted as the optional second argument."
+    exit 1
 fi
 
 source "$1"
 
 # Read in some common functions between
 # offleaf.sh and figleaf.sh
-source leaf_common.sh
+source ./leaf_common.sh
 
 shorten_path() {
     echo "$1" | awk -F'/' '{if(NF>2) print $(NF-2)"/"$(NF-1)"/"$NF; else print $0}'
@@ -80,19 +87,19 @@ squeeze() {
     done
 }
 
-if [ ! -f ".last_successful_pull_convert" ]; then
-    echo "No pull yet" >.last_successful_pull_convert
+if [ ! -f "$last_successful_pull" ]; then
+    echo "No pull yet" >"$last_successful_pull"
 fi
 
 # Currently only scanning for updates to Illustrator files
 # but excluding the temp files Illustrator creates
 $FSWATCH --batch-marker --extended \
---exclude=".*" \
---include="\\.ai$" \
---include="\\.pdf$" \
---exclude="ai[0-9]+.*\\.ai$" \
---exclude="ai[0-9]+.*\\.pdf$" \
-"$WATCH_PATH_CONVERT" >"$FSWATCH_OUTPUT_FILE_CONVERT" &
+    --exclude=".*" \
+    --include="\\.ai$" \
+    --include="\\.pdf$" \
+    --exclude="ai[0-9]+.*\\.ai$" \
+    --exclude="ai[0-9]+.*\\.pdf$" \
+    "$WATCH_PATH_CONVERT" >"$FSWATCH_OUTPUT_FILE_FIGLEAF" &
 
 LAST_PROCESSED_TIME=0
 CHANGED_FILES=()
