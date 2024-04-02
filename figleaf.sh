@@ -12,7 +12,7 @@ FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
 
 # Check if an argument was provided
 if [ "$#" -ne 1 ]; then
-    echo "offline_leaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file>"
+    echo "figleaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file>"
     exit 1
 fi
 
@@ -91,7 +91,7 @@ $FSWATCH --batch-marker --extended \
 --include="\\.ai$" \
 --include="\\.pdf$" \
 --exclude="ai[0-9]+.*\\.ai$" \
---exclude="ai[0-9]+.*\\.pdf$"
+--exclude="ai[0-9]+.*\\.pdf$" \
 "$WATCH_PATH_CONVERT" >"$FSWATCH_OUTPUT_FILE_CONVERT" &
 
 LAST_PROCESSED_TIME=0
