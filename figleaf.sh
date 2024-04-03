@@ -35,6 +35,17 @@ source "$1"
 # offleaf.sh and figleaf.sh
 source ./leaf_common.sh
 
+function terminate_script {
+    echo
+    echo "Terminating figleaf; clearing temp files."
+    rm "$FSWATCH_OUTPUT_FILE_FIGLEAF"
+    rm "$last_successful_pull"
+    exit
+}
+
+trap terminate_script SIGINT
+
+
 shorten_path() {
     echo "$1" | awk -F'/' '{if(NF>2) print $(NF-2)"/"$(NF-1)"/"$NF; else print $0}'
 }
@@ -123,6 +134,7 @@ while true; do
                     done
                     if [ "$found" == "0" ]; then
                         unique_files+=("$FILE")
+                        echo "DEBUG UNIQUE FILE $FILE"
                     fi
                 done
                 #FIX
@@ -184,7 +196,7 @@ while true; do
                 #
                 mv "$TEMP_PATH$filename.jpg" "$COPY_PATH_bitmap$filename.jpg"
 
-                if [[ "$1" == "-push" ]]; then
+                if [[ "$2" == "-push" ]]; then
                     # Need a pause here since after the push conditional above for
                     # the pdf file, it will take time to commit the change and the
                     # fswatch command for sync to Overleaf will not be detecting
