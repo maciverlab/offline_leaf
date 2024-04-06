@@ -134,7 +134,6 @@ while true; do
                     done
                     if [ "$found" == "0" ]; then
                         unique_files+=("$FILE")
-                        echo "DEBUG UNIQUE FILE $FILE"
                     fi
                 done
                 #FIX
@@ -201,7 +200,7 @@ while true; do
                     # the pdf file, it will take time to commit the change and the
                     # fswatch command for sync to Overleaf will not be detecting
                     # the change during the commit
-                    sleep 20
+                    sleep 10
                     cp "$COPY_PATH_bitmap$filename.jpg" "$COPY_PATH_bitmap_push$filename.jpg"
                     short_path5=$(shorten_path "$COPY_PATH_bitmap$filename.jpg")
                     short_path6=$(shorten_path "$COPY_PATH_bitmap_push$filename.jpg")
