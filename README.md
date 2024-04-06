@@ -1,5 +1,10 @@
-# offleaf.sh
-A shell script for offline work on an Overleaf project. Automatic synchronization and merging when online.
+# offleaf.sh & figleaf.sh
+**offleaf.sh**: A shell script for offline work on an Overleaf project. Automatic synchronization and merging when online.
+
+**figleaf.sh**: A shell script for automatic conversion of vector illustration files to bitmap and optimized vector for synchronization to an Overleaf project.
+
+
+# offleaf.sh:
 
 This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-to/Git_Integration_and_GitHub_Synchronization)
 
@@ -25,5 +30,11 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 
 The script will continually poll the remote repository and let you know if it was able to synchronize your local changes. If there is a conflict, it will tell you about the conflict and how to manually edit the .tex file so that the changes are properly merged.
 
-One thing that is somewhat inconvenient with Overleaf is synchronizing figures you are making for your Overleaf project. We have a similar script for synchronizing figure changes, called figleaf_sync, in a different github repository.
+
+# figleaf.sh
+
+One thing that is somewhat inconvenient with Overleaf is synchronizing figures you are making for your Overleaf project. After, for example, editing a large Adobe Illustrator file, you may need to optimize the pdf to a smaller size, and/or convert the file to a bitmapped file type so that compile times for Overleaf are not excessively long (they quickly become so with multiple large vector files).
+
+figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file types presently), and when it detects a change, optimizes the pdf and creates a .jpg file as well, and then pushes these both to the associated Overleaf project.
+
 
