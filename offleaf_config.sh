@@ -21,6 +21,8 @@ DEBOUNCE_SECONDS=15 # After an fswatch event is detected, wait this long before 
 FSWATCH="/opt/homebrew/bin/fswatch"
 CONVERT="/opt/homebrew/bin/convert"
 
+OVERLEAF_ID=$(basename "$GIT_PATH")
+
 TEMP_PATH="/tmp/"  # Temporary directory to store converted files
 COPY_PATH_bitmap="${WATCH_PATH_CONVERT}../ignored_by_fswatch/prepress_bitmap/"
 COPY_PATH_vector="${WATCH_PATH_CONVERT}../ignored_by_fswatch/prepress_vector/"

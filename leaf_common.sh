@@ -12,7 +12,7 @@ function git_operations {
     git ls-remote $REPOSITORY_URL &> /dev/null
 
     if [ $? -eq 0 ]; then
-        echo "Repository is accessible."
+        echo "Overleaf repo $OVERLEAF_ID is accessible."
     else
         return 1
     fi

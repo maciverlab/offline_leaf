@@ -76,7 +76,10 @@ fi
 # Currently, only attending to .tex files.
 
 # Note: Linux users may need to remove the exclude below
-$FSWATCH --batch-marker --recursive --extended \
+$FSWATCH \
+    --batch-marker \
+    --recursive \
+    --extended \
     --exclude=".*" \
     --include="\\.tex$" \
     "$WATCH_PATH_OVERLEAF" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" &

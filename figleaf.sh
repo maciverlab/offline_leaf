@@ -13,7 +13,7 @@ last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
 
 # Check if at least one argument was provided
 if [ "$#" -lt 1 ]; then
-    echo "figleaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file> [-push]"
+    echo "figleaf.sh needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file> [-push]"
     exit 1
 fi
 
@@ -88,7 +88,18 @@ squeeze() {
             output_file="${base_name}_sq.pdf"
         fi
 
-        gs -sDEVICE=pdfwrite -q -dBATCH -dNOPAUSE -dSAFER -dPDFSETTINGS=/prepress -dImageResolution=300 -sOutputFile="$output_file" -c '<</NeverEmbed []>> setdistillerparams' -f "$input_file" -c quit
+        gs \
+        -sDEVICE=pdfwrite \
+        -q \
+        -dBATCH \
+        -dNOPAUSE \
+        -dSAFER \
+        -dPDFSETTINGS=/prepress \
+        -dImageResolution=300 \
+        -sOutputFile="$output_file" \
+        -c '<</NeverEmbed []>> setdistillerparams' \
+        -f "$input_file" \
+        -c quit
 
         # If overwriting, move the temporary file to the original file
         if [[ "$overwrite" == true ]]; then
@@ -104,7 +115,9 @@ fi
 
 # Currently only scanning for updates to Illustrator files
 # but excluding the temp files Illustrator creates
-$FSWATCH --batch-marker --extended \
+$FSWATCH \
+    --batch-marker \
+    --extended \
     --exclude=".*" \
     --include="\\.ai$" \
     --include="\\.pdf$" \
@@ -170,7 +183,6 @@ while true; do
                 # Copy the .ai file to VECTOR_UPLOAD with a .pdf extension
                 cp "$file" "$COPY_PATH_vector$filename.pdf"
                 short_path2=$(shorten_path "$COPY_PATH_vector$filename.pdf")
-                # echo "$short_path1 copied to $short_path2 for optimization"
 
                 # Convert the .pdf file in the VECTOR_UPLOAD directory to an optimized PDF
                 squeeze -o "$COPY_PATH_vector$filename.pdf"
@@ -178,10 +190,10 @@ while true; do
                 if [[ "$2" == "-push" ]]; then
                     cp "$COPY_PATH_vector$filename.pdf" "$COPY_PATH_vector_push$filename.pdf"
                     short_path3=$(shorten_path "$COPY_PATH_vector_push$filename.pdf")
-                    echo "$short_path2 copied to $short_path3 for push to Overleaf"
-                    echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
+                    echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
                     git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
-                    echo "Commit of $COPY_PATH_vector_push$filename.pdf completed"
+                    echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
+                    echo "Commit of $filename.pdf to $OVERLEAF_ID completed"
                 fi
 
                 # Generate bitmap file
@@ -207,9 +219,8 @@ while true; do
                     echo "$short_path5 copied to $short_path6 for push to Overleaf"
                     echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
                     git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
-                    echo "Commit of $COPY_PATH_bitmap_push$filename.jpg completed"
+                    echo "Commit of $filename.jpg to $OVERLEAF_ID completed"
                 fi
-                echo "Processing completed"
                 echo
                 echo
                 echo "----------------------------------------------------------------------------"
