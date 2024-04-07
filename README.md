@@ -46,3 +46,8 @@ figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file type
 5. Create `/figures/vector` and `/figures/bitmap` in your local copy of your Overleaf project. You will need to add these two subdirectories to your graphics path for compiling your .tex files in Overleaf.
 6. Modify `offleaf_config.sh` to the location of `/watched` created above
 
+
+**Notes**
+
+Unlike offleaf.sh, there is no automatic merging function in this script. It is assuming only one person is actively making figure changes.
+Since these files are often binary files, auto merge would be a bad idea. If a conflict occurs the script will exit.
