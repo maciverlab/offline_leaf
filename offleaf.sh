@@ -26,9 +26,6 @@ fi
 
 source "$1"
 
-RED="\033[1;31m"
-RESET="\033[0m"
-
 function terminate_script {
     echo
     echo "Terminating background git pull process with PID: $GIT_PULL_PID"

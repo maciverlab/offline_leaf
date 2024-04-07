@@ -125,6 +125,9 @@ $FSWATCH \
     --exclude="ai[0-9]+.*\\.pdf$" \
     "$WATCH_PATH_CONVERT" >"$FSWATCH_OUTPUT_FILE_FIGLEAF" &
 
+echo "Waiting for the next detected figure file change."
+
+
 LAST_PROCESSED_TIME=0
 CHANGED_FILES=()
 
@@ -193,7 +196,9 @@ while true; do
                     echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
                     git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
                     echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
-                    echo "Commit of $filename.pdf to $OVERLEAF_ID completed"
+                    echo
+                    echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed.${RESET}"
+                    echo
                 fi
 
                 # Generate bitmap file
@@ -219,11 +224,14 @@ while true; do
                     echo "$short_path5 copied to $short_path6 for push to Overleaf"
                     echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
                     git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
-                    echo "Commit of $filename.jpg to $OVERLEAF_ID completed"
+                    echo
+                    echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed.${RESET}"
                 fi
                 echo
                 echo
                 echo "----------------------------------------------------------------------------"
+                echo "Waiting for the next detected figure file change."
+                echo
             fi
             # Remove the file from the queue
             CHANGED_FILES=("${CHANGED_FILES[@]:1}")

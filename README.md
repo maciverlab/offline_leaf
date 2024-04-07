@@ -8,7 +8,7 @@
 
 This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-to/Git_Integration_and_GitHub_Synchronization)
 
-# STEPS FOR USE
+# STEPS FOR USE of offleaf.sh
 
 1. Install git and several needed tools. In macOS, using MacPorts, this would involve
     `xcode-select --install` (to get git). Then
