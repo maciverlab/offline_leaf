@@ -46,5 +46,3 @@ figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file type
 3. Create `/figures/vector` and `/figures/bitmap` in your local copy of your Overleaf project
 4. Modify `offleaf_config.sh` to the location of `/watched` created above
 
-
-
