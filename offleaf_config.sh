@@ -6,8 +6,10 @@ GIT_PATH="/Users/maciver/Downloads/6604ab05a1dfc483ce5bbb9c/"
 # Path to directory for figure file master versions, needed for figleaf.sh
 WATCH_PATH_CONVERT="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u.northwestern.edu/My Drive/habmeth_temp_test/figures/watched/"
 
-# Path to temporary directory for optimized vector or converted bitmap files from figleaf.sh
-TEMP_PATH="/tmp/"  # Temporary directory to store converted files
+
+#######################################
+# Edits below this point should rarely if ever be needed
+#######################################
 
 # Path to directories where the optimized vector and bitmap files are kept
 COPY_PATH_bitmap="${WATCH_PATH_CONVERT}../ignored_by_fswatch/prepress_bitmap/"
@@ -17,9 +19,9 @@ COPY_PATH_vector="${WATCH_PATH_CONVERT}../ignored_by_fswatch/prepress_vector/"
 COPY_PATH_bitmap_push="${GIT_PATH}figures/bitmap/"
 COPY_PATH_vector_push="${GIT_PATH}figures/vector/"
 
-#######################################
-# No edits below this point should be needed
-#######################################
+# Path to temporary directory for optimized vector or converted bitmap files from figleaf.sh
+TEMP_PATH="/tmp/"  # Temporary directory to store converted files
+
 
 COMMIT_INTERVAL_SECONDS=15 # Minimum gap between commits
 GIT_PULL_INTERVAL_SECONDS=20 # Interval to perform git pull in background

@@ -13,7 +13,7 @@ last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
 
 # Check if at least one argument was provided
 if [ "$#" -lt 1 ]; then
-    echo "figleaf.sh needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file> [-push]"
+    echo "figleaf.sh needs path and name (offleaf_config.sh) of configuration file. Usage: $0 <path_to_env_variables_file> [-push]"
     exit 1
 fi
 
@@ -33,7 +33,10 @@ source "$1"
 
 # Read in some common functions between
 # offleaf.sh and figleaf.sh
-source ./leaf_common.sh
+# Get the directory of the current script, resolving symlinks
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# Source the common function file from the same directory
+source "${SCRIPT_DIR}/leaf_common.sh"
 
 function terminate_script {
     echo

@@ -9,12 +9,14 @@ last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
 
 # Read in some common functions between
 # offleaf.sh and figleaf.sh
-source leaf_common.sh
-
+# Get the directory of the current script, resolving symlinks
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# Source the common function file from the same directory
+source "${SCRIPT_DIR}/leaf_common.sh"
 
 # Check if an argument was provided
 if [ "$#" -ne 1 ]; then
-    echo "offline_leaf needs the name of your environment variable file. Usage: $0 <path_to_env_variables_file>"
+    echo "offleaf.sh needs path and name (offleaf_config.sh) of configuration file. Usage: $0 <path_to_env_variables_file>"
     exit 1
 fi
 
