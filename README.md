@@ -41,8 +41,8 @@ figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file type
 
 1. Follow the instructions for offleaf.sh above
 2. In the directory where you keep your figure file masters, create `/watched` and move all files to that subdirectory.
-3. Edit your offleaf_config.sh file with the correct location of this new subdirectory
+3. Edit your `offleaf_config.sh` file with the correct location of this new subdirectory
 4. Create a `/ignored_by_fswatch` subdirectory at the same level as `/watched`; Create `prepress_bitmap` and `prepress_vector` subdirectories below this one.
-3. Create `/figures/vector` and `/figures/bitmap` in your local copy of your Overleaf project
-4. Modify `offleaf_config.sh` to the location of `/watched` created above
+5. Create `/figures/vector` and `/figures/bitmap` in your local copy of your Overleaf project. You will need to add these two subdirectories to your graphics path for compiling your .tex files in Overleaf.
+6. Modify `offleaf_config.sh` to the location of `/watched` created above
 
