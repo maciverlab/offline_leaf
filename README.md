@@ -51,3 +51,5 @@ figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file type
 
 Unlike offleaf.sh, there is no automatic merging function in this script. It is assuming only one person is actively making figure changes.
 Since these files are often binary files, auto merge would be a bad idea. If a conflict occurs the script will exit.
+
+Because the code is assuming illustration masters are maintained outside of Overleaf, it pulls from the repository before pushing, but it does not propagate newly edited files back to the directories where the masters are maintained.
