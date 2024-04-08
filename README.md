@@ -17,7 +17,7 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
     For Windows machines, a useful terminal with git functionality can be obtained via https://gitforwindows.org/.
 3. Go to your project in Overleaf
 4. Get the project ID. For example, if your Overleaf project URL is https://www.overleaf.com/project/65cf7db8c9d209bdc5f3a039, the project ID is: 65cf7db8c9d209bdc5f3a039.
-5. Navigate to a directory that you want your local Overleaf project to be located within, create a parent directory to a clone of the Overleaf repository as well as a configuration file you'll need to edit. From a shell terminal at that location, do `git clone https://git.overleaf.com/[project id]`
+5. Navigate to a directory that you want your local Overleaf project to be located within: Now create that directory, which will contain a clone of the Overleaf repository as well as a configuration file you'll need to edit in a following step. From a shell terminal in this new directory, do `git clone https://git.overleaf.com/[project id]`
 6. Download `offleaf.sh`, `offleaf_config.sh`, and `leaf_common.sh` from this repository (and `figleaf.sh` if you'll be using that). Put these into a directory that you then add to your executable path, or where you will execute them. Move `offleaf_config.sh` into the same directory that also contains your Overleaf repository (so at the same level, but not within, your Overleaf repository).  
 8. Edit `offleaf_config.sh` to set GIT_PATH to the full path to the Overleaf repository (instructions for other variables: see section on `figleaf.sh`). 
 9. Open a terminal to where `offleaf.sh` is, and do `chmod +x offleaf.sh` (and same for `figleaf.sh` if it will be used).
