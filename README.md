@@ -1,7 +1,7 @@
 # offleaf.sh & figleaf.sh
 **offleaf.sh**: A shell script for offline work on a local clone of an Overleaf project repository. Automatic synchronization and merging when online. Target use is when there is inconsistent connectivity, no connectivity, or you prefer editing with local machine LaTeX environment.
 
-**figleaf.sh**: A shell script for automatic conversion of vector illustration files to bitmap and optimized vector for synchronization to an Overleaf project. Target use is for writing projects with enough figures/frequen edit cycles, so that manual uploads to Overleaf become too time consuming.
+**figleaf.sh**: A shell script for automatic conversion of vector illustration files to bitmap and optimized vector for synchronization to an Overleaf project. Target use is for writing projects with enough figures/frequent edit cycles, so that manual uploads to Overleaf become too time consuming.
 
 
 # offleaf.sh:
