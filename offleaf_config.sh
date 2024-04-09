@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Path to Overleaf project repository
-GIT_PATH="/Users/maciver/Downloads/6604ab05a1dfc483ce5bbb9c/"
+GIT_PATH="/Users/maciver/Downloads/test/6604ab05a1dfc483ce5bbb9c/"
 
 # Path to directory for figure file master versions, needed for figleaf.sh
 WATCH_PATH_CONVERT="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u.northwestern.edu/My Drive/habmeth_temp_test/figures/watched/"
@@ -12,8 +12,8 @@ WATCH_PATH_CONVERT="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u
 #######################################
 
 # Path to directories where the optimized vector and bitmap files are kept
-COPY_PATH_bitmap="${WATCH_PATH_CONVERT}../ignored_by_fswatch/prepress_bitmap/"
-COPY_PATH_vector="${WATCH_PATH_CONVERT}../ignored_by_fswatch/prepress_vector/"
+COPY_PATH_bitmap="${WATCH_PATH_CONVERT}../unwatched/prepress_bitmap/"
+COPY_PATH_vector="${WATCH_PATH_CONVERT}../unwatched/prepress_vector/"
 
 # Path to directories where Overleaf repository keeps vector and bitmap files
 COPY_PATH_bitmap_push="${GIT_PATH}figures/bitmap/"
