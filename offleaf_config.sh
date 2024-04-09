@@ -22,7 +22,6 @@ COPY_PATH_vector_push="${GIT_PATH}figures/vector/"
 # Path to temporary directory for optimized vector or converted bitmap files from figleaf.sh
 TEMP_PATH="/tmp/"  # Temporary directory to store converted files
 
-
 COMMIT_INTERVAL_SECONDS=15 # Minimum gap between commits
 GIT_PULL_INTERVAL_SECONDS=20 # Interval to perform git pull in background
 DEBOUNCE_SECONDS=15 # After an fswatch event is detected, wait this long before detecting another
