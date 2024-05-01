@@ -22,7 +22,7 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 8. Edit `offleaf_config.sh` to set GIT_PATH to the full path to the Overleaf repository (instructions for other variables: see section on `figleaf.sh`). 
 9. Open a terminal to where `offleaf.sh` is, and do `chmod +x offleaf.sh` (and same for `figleaf.sh` if it will be used).
 10. cd into your Overleaf repository, and do `git config pull.rebase false` and `git config http.postBuffer 10485760`. To skip doing this for every Overleaf project you are working on, you can do `git config --global` with these two settings.
-11. Add a .gitignore file to your Overleaf repository. I've included a file with suggested ignores (`GITIGNORE_CONTENTS.txt`): to use, just copy its contents into a file called `.gitignore` within the top level of your Overleaf repository. Then do `git add .gitignore`, then `git commit -m 'new .gitignore'`, and finally `git push .gitignore` from inside that directory.
+11. Add a .gitignore file to your Overleaf repository. I've included a file with suggested ignores (`GITIGNORE_CONTENTS.txt`): to use, just copy its contents into a file called `.gitignore` within the top level of your Overleaf repository. Then do `git add .gitignore`, then `git commit -m 'new .gitignore'`, and finally `git push`.
 12. Now from whatever directory you placed the script, you can do `offleaf.sh [path to parent directory of your Overleaf repository]/offleaf_config.sh`.
 
 
