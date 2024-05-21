@@ -35,7 +35,7 @@ The script will continually poll the remote repository and let you know if it wa
 
 One thing that is somewhat inconvenient with Overleaf is synchronizing figures you are making for your Overleaf project. After, for example, editing a large Adobe Illustrator file, you may need to optimize the pdf to a smaller size, and/or convert the file to a bitmapped file type so that compile times for Overleaf are not excessively long (they quickly become so with multiple large vector files). You then need to go to your Overleaf project, and select the folder for the vector version of your figures, click on it and hit upload, navigate to your file, and upload, and repeat for the bitmap version. That gets tedious quickly.
 
-figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file types presently), and when it detects a change, optimizes the pdf and creates a .jpg file as well, and then pushes these both to the associated Overleaf project, so your collaborators and you have fast and easy updates to figures, particularly useful in the ``terminal buzz'' phase of grant or publication preparations.
+figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file types presently), and when it detects a change, optimizes the pdf and creates a .jpg file as well, and then pushes these both to the associated Overleaf project, so your collaborators and you have fast and easy updates to figures, particularly useful in the final phases of grant or publication preparations when changes are being made with high frequency.
 
 # STEPS FOR USE of figleaf.sh
 
