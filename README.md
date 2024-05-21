@@ -23,7 +23,7 @@ This uses Overleaf's [gitsync functionality](https://www.overleaf.com/learn/how-
 9. Open a terminal to where `offleaf.sh` is, and do `chmod +x offleaf.sh` (and same for `figleaf.sh` if it will be used).
 10. cd into your Overleaf repository, and do `git config pull.rebase false` and `git config http.postBuffer 10485760`. To skip doing this for every Overleaf project you are working on, you can do `git config --global` with these two settings.
 11. Add a .gitignore file to your Overleaf repository. I've included a file with suggested ignores (`GITIGNORE_CONTENTS.txt`): to use, just copy its contents into a file called `.gitignore` within the top level of your Overleaf repository. Then do `git add .gitignore`, then `git commit -m 'new .gitignore'`, and finally `git push`.
-12. Now from whatever directory you placed the offleaf.sh script (or if from anywhere if in path), you can do `offleaf.sh [path to parent directory of your Overleaf repository]/offleaf_config.sh`.
+12. Now from the parent directory of your Overleaf repository, you can run `offleaf.sh offleaf_config.sh`.
 
 
 **Notes**
@@ -45,7 +45,7 @@ figleaf.sh monitors the vector masters (Adobe Illustrator .ai and .pdf file type
 4. Create a `/ignored_by_fswatch` subdirectory at the same level as `/watched`; Create `prepress_bitmap` and `prepress_vector` subdirectories below this one. 
 5. Create `/figures/vector` and `/figures/bitmap` in your local copy of your Overleaf project. You will need to add these two subdirectories to your graphics path for compiling your .tex files in Overleaf.
 6. Modify `offleaf_config.sh` to indicate the location of the `/watched` directory created above.
-7.  Now from whatever directory you placed the figleaf.sh script (or if from anywhere if in path), you can do `figleaf.sh [path to parent directory of your Overleaf repository]/offleaf_config.sh`.
+7. Now from the parent directory of your Overleaf repository, you can run `figleaf.sh offleaf_config.sh`.
 
 
 **Notes**
