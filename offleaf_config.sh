@@ -28,7 +28,7 @@ DEBOUNCE_SECONDS=15 # After an fswatch event is detected, wait this long before 
 
 # Locations of fswatch and convert
 FSWATCH="/opt/homebrew/bin/fswatch"
-CONVERT="/opt/homebrew/bin/convert"
+CONVERT="/opt/homebrew/bin/magick"
 
 WATCH_PATH_OVERLEAF="$GIT_PATH"
 OVERLEAF_ID=$(basename "$GIT_PATH")
