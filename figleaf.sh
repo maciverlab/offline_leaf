@@ -11,6 +11,7 @@
 FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
 last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
 
+DEBUG=1
 # Check if at least one argument was provided
 if [ "$#" -lt 1 ]; then
     echo "figleaf.sh needs path and name (offleaf_config.sh) of configuration file. Usage: $0 <path_to_env_variables_file> [-push]"
@@ -137,13 +138,17 @@ CHANGED_FILES=()
 while true; do
     CURRENT_TIME=$(date +%s)
     if [ -s "$FSWATCH_OUTPUT_FILE_FIGLEAF" ] && [ $(($CURRENT_TIME - $LAST_PROCESSED_TIME)) -ge "$DEBOUNCE_SECONDS" ]; then
-
+        if [ "$DEBUG" -eq 1 ]; then
+            echo "Current value of CHANGED_FILES"
+            echo "$FSWATCH_OUTPUT_FILE_FIGLEAF"
+        fi
         batch_files=()
         while read -r line; do
             if [ "$line" == "NoOp" ]; then
                 # Process unique files from batch_files
                 #FIX
                 unique_files=()
+
                 for FILE in "${batch_files[@]}"; do
                     found=0
                     for ALREADY_ADDED in "${unique_files[@]}"; do
@@ -160,6 +165,10 @@ while true; do
                 for file in "${unique_files[@]}"; do
                     CHANGED_FILES+=("$file")
                 done
+              if [ "$DEBUG" -eq 1 ]; then
+                echo "Current value of CHANGED_FILES"
+                echo "$CHANGED_FILES"
+              fi
                 # Clear the batch
                 batch_files=()
             else
@@ -220,7 +229,7 @@ while true; do
                     # the pdf file, it will take time to commit the change and the
                     # fswatch command for sync to Overleaf will not be detecting
                     # the change during the commit
-                    sleep 10
+                    sleep 20
                     cp "$COPY_PATH_bitmap$filename.jpg" "$COPY_PATH_bitmap_push$filename.jpg"
                     short_path5=$(shorten_path "$COPY_PATH_bitmap$filename.jpg")
                     short_path6=$(shorten_path "$COPY_PATH_bitmap_push$filename.jpg")

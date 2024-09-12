@@ -1,3 +1,6 @@
+DEBUG=1
+
+
 function relative_path() {
     prefix="$1"
     string="$2"
@@ -68,6 +71,13 @@ function git_operations {
         echo " "
         echo " "
     elif [[ $output == *"failed to push"* && $apply_stash -eq 0 ]]; then
+        if [ "$DEBUG" -eq 1 ]; then
+          echo "                         "
+          echo "                         "
+          echo "$output"
+          echo "                         "
+          echo "                         "
+        fi
         echo -e "${RED}Merge conflict detected during push."
         echo -e "Conflict is not being resolved: exiting.${RESET}"
         exit
