@@ -11,7 +11,7 @@
 FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
 last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
 
-DEBUG=1
+DEBUG=0
 # Check if at least one argument was provided
 if [ "$#" -lt 1 ]; then
     echo "figleaf.sh needs path and name (offleaf_config.sh) of configuration file. Usage: $0 <path_to_env_variables_file> [-push]"
