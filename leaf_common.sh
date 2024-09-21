@@ -79,7 +79,6 @@ function git_operations {
           echo "                         "
         fi
         echo -e "${RED}Merge conflict detected during push."
-        echo -e "Conflict is not being resolved: exiting.${RESET}"
         exit
     fi
     return 0
