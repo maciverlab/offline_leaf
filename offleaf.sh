@@ -77,6 +77,7 @@ fi
 # Note: Linux users may need to remove the exclude below
 $FSWATCH \
     --batch-marker \
+    --latency 3 \
     --recursive \
     --extended \
     --exclude=".*" \
@@ -84,12 +85,27 @@ $FSWATCH \
     "$WATCH_PATH_OVERLEAF" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" &
 
 
-LAST_PROCESSED_TIME=0
 CHANGED_FILES=()
+# Byte offset of the fswatch output file already consumed. We never truncate
+# that file (fswatch holds it open); tracking a byte offset checked with
+# "wc -c" (an O(1) fstat) keeps the per-poll cost constant as the file grows.
+CONSUMED_BYTES=0
+# Quiescence-based debounce: wait until the file has been unchanged for
+# DEBOUNCE_SECONDS before reading, so a save reported as several batches is
+# collected (and de-duplicated) in one pass rather than processed piecemeal.
+LAST_TOTAL_BYTES=0
+QUIET_SINCE=0
 
 while true; do
-    CURRENT_TIME=$(date +%s)
-    if [ -s "$FSWATCH_OUTPUT_FILE_OVERLEAF" ] && [ $(($CURRENT_TIME - $LAST_PROCESSED_TIME)) -ge "$DEBOUNCE_SECONDS" ]; then
+    CURRENT_TIME=$SECONDS
+    TOTAL_BYTES=$(wc -c <"$FSWATCH_OUTPUT_FILE_OVERLEAF")
+    # Any new events restart the quiet timer.
+    if (( TOTAL_BYTES != LAST_TOTAL_BYTES )); then
+        LAST_TOTAL_BYTES=$TOTAL_BYTES
+        QUIET_SINCE=$CURRENT_TIME
+    fi
+    # Read pending events only once they've been quiet long enough.
+    if (( TOTAL_BYTES > CONSUMED_BYTES )) && (( CURRENT_TIME - QUIET_SINCE >= DEBOUNCE_SECONDS )); then
 
         batch_files=()
         while read -r line; do
@@ -111,7 +127,20 @@ while true; do
                 #FIX
 
                 for file in "${unique_files[@]}"; do
-                    CHANGED_FILES+=("$file")
+                    # Skip empties and anything already queued, so a single edit
+                    # reported by fswatch as several NoOp-delimited batches isn't
+                    # committed/pushed more than once.
+                    [ -z "$file" ] && continue
+                    already_queued=0
+                    for queued in "${CHANGED_FILES[@]}"; do
+                        if [ "$file" == "$queued" ]; then
+                            already_queued=1
+                            break
+                        fi
+                    done
+                    if [ "$already_queued" -eq 0 ]; then
+                        CHANGED_FILES+=("$file")
+                    fi
                 done
                 # Clear the batch
                 batch_files=()
@@ -120,35 +149,38 @@ while true; do
                 batch_files+=("$line")
             fi
 
-        done <"$FSWATCH_OUTPUT_FILE_OVERLEAF"
-        echo "" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" # Clear the fswatch output file
+        done < <(tail -c +$((CONSUMED_BYTES + 1)) "$FSWATCH_OUTPUT_FILE_OVERLEAF")
+        # Advance past the bytes we just consumed; never truncate the file.
+        CONSUMED_BYTES=$TOTAL_BYTES
+    fi
 
-        LAST_PROCESSED_TIME=$CURRENT_TIME
+    # Process any queued files one at a time, independent of whether new
+    # fswatch events arrived this cycle, so a queue of several changed files
+    # drains fully (and the idle sleep is always reached, avoiding a busy loop).
+    if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
+        file_to_commit="${CHANGED_FILES[0]}"
+        if [ -f "$file_to_commit" ]; then
 
-        # Process the files in the queue one by one
-        if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
-            file_to_commit="${CHANGED_FILES[0]}"
-            if [ -f "$file_to_commit" ]; then
+            echo "Calling git_operations for:  \"$file_to_commit\""
 
-                echo "Calling git_operations for:  \"$file_to_commit\""
+            while :; do
+                git_operations 1 "$file_to_commit"
+                if [ $? -eq 0 ]; then
+                    break
+                fi
+                sleep 60
+            done
 
-                while :; do
-                    git_operations 1 "$file_to_commit"
-                    if [ $? -eq 0 ]; then
-                        break
-                    fi
-                    sleep 60
-                done
-
-                echo "Finished calling git operations"
-                # Sleep for the specified interval before the next commit
-                 sleep "$COMMIT_INTERVAL_SECONDS"
-            fi
-            # Remove the file from the queue
-            CHANGED_FILES=("${CHANGED_FILES[@]:1}")
-        else
-            # Sleep for a short period before checking for changes again
-            sleep 1 
+            echo "Finished calling git operations"
+            # Sleep for the specified interval before the next commit
+             sleep "$COMMIT_INTERVAL_SECONDS"
         fi
+        # Remove the file from the queue
+        CHANGED_FILES=("${CHANGED_FILES[@]:1}")
+    else
+        # Poll again after a pause. A longer interval means fewer CPU wakeups
+        # (better battery); worst-case latency to notice a new edit is about
+        # POLL_INTERVAL_SECONDS plus the debounce.
+        sleep "$POLL_INTERVAL_SECONDS"
     fi
 done

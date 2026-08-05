@@ -10,8 +10,12 @@
 
 FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
 last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
+# Directory holding the last-processed content hash of each master figure, so
+# duplicate or delayed fswatch events (common on cloud-synced folders such as
+# Google Drive) don't re-commit a figure whose content hasn't actually changed.
+HASH_DIR=$(mktemp -d /tmp/figleaf_hashes.XXXXXXXX)
 
-DEBUG=1
+# DEBUG is set in the config file (offleaf_config.sh); default off if unset
 # Check if at least one argument was provided
 if [ "$#" -lt 1 ]; then
     echo "figleaf.sh needs path and name (offleaf_config.sh) of configuration file. Usage: $0 <path_to_env_variables_file> [-push]"
@@ -44,6 +48,7 @@ function terminate_script {
     echo "Terminating figleaf; clearing temp files."
     rm "$FSWATCH_OUTPUT_FILE_FIGLEAF"
     rm "$last_successful_pull"
+    rm -rf "$HASH_DIR"
     exit
 }
 
@@ -52,6 +57,28 @@ trap terminate_script SIGINT
 
 shorten_path() {
     echo "$1" | awk -F'/' '{if(NF>2) print $(NF-2)"/"$(NF-1)"/"$NF; else print $0}'
+}
+
+# True (0) if the figure's content matches what we last processed -- i.e. this
+# is a duplicate/stale fswatch event (common on cloud-synced folders such as
+# Google Drive) and should be ignored. Read-only; checked when queueing so the
+# queue (and the "N more queued" count) only ever reflects real work.
+content_unchanged() {
+    local f="$1" key stored
+    key=$(printf '%s' "$f" | shasum | awk '{print $1}')
+    [ -f "$HASH_DIR/$key" ] || return 1
+    stored=$(cat "$HASH_DIR/$key")
+    [ "$(shasum "$f" | awk '{print $1}')" = "$stored" ]
+}
+
+# Record the content hash of a figure we just processed, so subsequent
+# duplicate events for the same content are ignored by content_unchanged.
+# Recorded at process time (not queue time) so a rapid re-edit during the
+# queue->process window doesn't leave a stale hash.
+record_processed_hash() {
+    local f="$1" key
+    key=$(printf '%s' "$f" | shasum | awk '{print $1}')
+    shasum "$f" | awk '{print $1}' >"$HASH_DIR/$key"
 }
 
 squeeze() {
@@ -120,7 +147,9 @@ fi
 # Currently only scanning for updates to Illustrator files
 # but excluding the temp files Illustrator creates
 $FSWATCH \
+    --recursive \
     --batch-marker \
+    --latency 3 \
     --extended \
     --exclude=".*" \
     --include="\\.ai$" \
@@ -132,15 +161,34 @@ $FSWATCH \
 echo "Waiting for the next detected figure file change."
 
 
-LAST_PROCESSED_TIME=0
 CHANGED_FILES=()
+# Byte offset of the fswatch output file already consumed. We never truncate
+# that file: fswatch holds it open and would keep writing at its previous
+# offset, leaving a null-byte "hole" that corrupts later events. Instead we
+# track how many bytes we've read and only process newly appended bytes.
+# Using a byte offset checked with "wc -c" (an O(1) fstat) rather than "wc -l"
+# keeps the per-poll cost constant even though the file grows over a session.
+CONSUMED_BYTES=0
+# Quiescence-based debounce. fswatch reports one save as a burst of events,
+# often split across several NoOp-delimited batches and spread over a few
+# seconds. We wait until the file has been unchanged for DEBOUNCE_SECONDS
+# before reading, so the whole save is collected (and de-duplicated) in a
+# single pass instead of processing the first batch while more still arrive.
+LAST_TOTAL_BYTES=0
+QUIET_SINCE=0
 
 while true; do
-    CURRENT_TIME=$(date +%s)
-    if [ -s "$FSWATCH_OUTPUT_FILE_FIGLEAF" ] && [ $(($CURRENT_TIME - $LAST_PROCESSED_TIME)) -ge "$DEBOUNCE_SECONDS" ]; then
+    CURRENT_TIME=$SECONDS
+    TOTAL_BYTES=$(wc -c <"$FSWATCH_OUTPUT_FILE_FIGLEAF")
+    # Any new events restart the quiet timer.
+    if (( TOTAL_BYTES != LAST_TOTAL_BYTES )); then
+        LAST_TOTAL_BYTES=$TOTAL_BYTES
+        QUIET_SINCE=$CURRENT_TIME
+    fi
+    # Read pending events only once they've been quiet long enough.
+    if (( TOTAL_BYTES > CONSUMED_BYTES )) && (( CURRENT_TIME - QUIET_SINCE >= DEBOUNCE_SECONDS )); then
         if [ "$DEBUG" -eq 1 ]; then
-            echo "Current value of CHANGED_FILES"
-            echo "$FSWATCH_OUTPUT_FILE_FIGLEAF"
+            echo "fswatch output file: $FSWATCH_OUTPUT_FILE_FIGLEAF"
         fi
         batch_files=()
         while read -r line; do
@@ -163,11 +211,28 @@ while true; do
                 #FIX
 
                 for file in "${unique_files[@]}"; do
+                    # Only queue real work. Skip: empty lines; vanished/transient
+                    # paths; duplicate/stale events whose content we've already
+                    # processed (dedups Google Drive's delayed FSEvents); and
+                    # anything already in the queue (fswatch reports one save as
+                    # several NoOp-delimited batches). This keeps the queue and
+                    # its "N more queued" count honest.
+                    [ -z "$file" ] && continue
+                    [ -f "$file" ] || continue
+                    content_unchanged "$file" && continue
+                    already_queued=0
+                    for queued in "${CHANGED_FILES[@]}"; do
+                        if [ "$file" == "$queued" ]; then
+                            already_queued=1
+                            break
+                        fi
+                    done
+                    [ "$already_queued" -eq 1 ] && continue
                     CHANGED_FILES+=("$file")
                 done
               if [ "$DEBUG" -eq 1 ]; then
                 echo "Current value of CHANGED_FILES"
-                echo "$CHANGED_FILES"
+                printf '%s\n' "${CHANGED_FILES[@]}"
               fi
                 # Clear the batch
                 batch_files=()
@@ -176,82 +241,93 @@ while true; do
                 batch_files+=("$line")
             fi
 
-        done <"$FSWATCH_OUTPUT_FILE_FIGLEAF"
-        echo "" >"$FSWATCH_OUTPUT_FILE_FIGLEAF" # Clear the fswatch output file
+        done < <(tail -c +$((CONSUMED_BYTES + 1)) "$FSWATCH_OUTPUT_FILE_FIGLEAF")
+        # Advance past the bytes we just consumed; never truncate the file.
+        CONSUMED_BYTES=$TOTAL_BYTES
+    fi
 
-        LAST_PROCESSED_TIME=$CURRENT_TIME
+    # Process any queued files one at a time, independent of whether new
+    # fswatch events arrived this cycle, so a queue of several changed files
+    # drains fully (and the idle sleep is always reached, avoiding a busy loop).
+    if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
+        file_to_process="${CHANGED_FILES[0]}"
+        if [ -f "$file_to_process" ]; then
+            file="$file_to_process"
 
-        # Process the files in the queue one by one
-        if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
-            file_to_process="${CHANGED_FILES[0]}"
-            if [ -f "$file_to_process" ]; then
-                file="$file_to_process"
+            # Get the filename without extension
+            short_path1=$(shorten_path "$file_to_process")
+            echo
+            echo
+            echo "----------------------------------------------------------------------------"
+            echo "Detected change in ""$short_path1"": Begin processing..."
+            filename=$(basename -- "$file_to_process")
+            filename="${filename%.*}"
+            # Copy the .ai file to VECTOR_UPLOAD with a .pdf extension
+            cp "$file" "$COPY_PATH_pdf$filename.pdf"
+            short_path2=$(shorten_path "$COPY_PATH_pdf$filename.pdf")
 
-                # Get the filename without extension
-                short_path1=$(shorten_path "$file_to_process")
+            # Convert the .pdf file in the VECTOR_UPLOAD directory to an optimized PDF
+            squeeze -o "$COPY_PATH_pdf$filename.pdf"
+
+            if [[ "$2" == "-push" ]]; then
+                cp "$COPY_PATH_pdf$filename.pdf" "$COPY_PATH_vector_push$filename.pdf"
+                short_path3=$(shorten_path "$COPY_PATH_vector_push$filename.pdf")
+                echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
+                git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
+                echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
                 echo
-                echo
-                echo "----------------------------------------------------------------------------"
-                echo "Detected change in ""$short_path1"": Begin processing..."
-                filename=$(basename -- "$file_to_process")
-                filename="${filename%.*}"
-                # Copy the .ai file to VECTOR_UPLOAD with a .pdf extension
-                cp "$file" "$COPY_PATH_vector$filename.pdf"
-                short_path2=$(shorten_path "$COPY_PATH_vector$filename.pdf")
-
-                # Convert the .pdf file in the VECTOR_UPLOAD directory to an optimized PDF
-                squeeze -o "$COPY_PATH_vector$filename.pdf"
-
-                if [[ "$2" == "-push" ]]; then
-                    cp "$COPY_PATH_vector$filename.pdf" "$COPY_PATH_vector_push$filename.pdf"
-                    short_path3=$(shorten_path "$COPY_PATH_vector_push$filename.pdf")
-                    echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
-                    git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
-                    echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
-                    echo
-                    echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed.${RESET}"
-                    echo
-                fi
-
-                # Generate bitmap file
-                outputfile="${TEMP_PATH}${filename}.jpg"
-                # Convert the optimized PDF to a jpg file
-                #
-
-                $CONVERT -density 220 "$COPY_PATH_vector$filename.pdf" -alpha remove -quality 100 "${outputfile}"
-
-                # Move the jpg file to COPY_PATH_bitmap
-                #
-                mv "$TEMP_PATH$filename.jpg" "$COPY_PATH_bitmap$filename.jpg"
-
-                if [[ "$2" == "-push" ]]; then
-                    # Need a pause here since after the push conditional above for
-                    # the pdf file, it will take time to commit the change and the
-                    # fswatch command for sync to Overleaf will not be detecting
-                    # the change during the commit
-                    sleep 20
-                    cp "$COPY_PATH_bitmap$filename.jpg" "$COPY_PATH_bitmap_push$filename.jpg"
-                    short_path5=$(shorten_path "$COPY_PATH_bitmap$filename.jpg")
-                    short_path6=$(shorten_path "$COPY_PATH_bitmap_push$filename.jpg")
-                    echo "$short_path5 copied to $short_path6 for push to Overleaf"
-                    echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
-                    git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
-                    echo
-                    echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed.${RESET}"
-                fi
-                echo
-                echo
-                echo "----------------------------------------------------------------------------"
-                echo "Waiting for the next detected figure file change."
+                echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed.${RESET}"
                 echo
             fi
-            # Remove the file from the queue
-            CHANGED_FILES=("${CHANGED_FILES[@]:1}")
-            # Sleep for the specified interval before the next commit
-            sleep "$COMMIT_INTERVAL_SECONDS"
-        else
-            # Sleep for a short period before checking for changes again
-            sleep 1
+
+            # Generate bitmap file
+            outputfile="${TEMP_PATH}${filename}.jpg"
+            # Convert the optimized PDF to a jpg file
+            #
+
+            $CONVERT -density 220 "$COPY_PATH_pdf$filename.pdf" -alpha remove -quality 100 "${outputfile}"
+
+            # Move the jpg file to COPY_PATH_bitmap
+            #
+            mv "$TEMP_PATH$filename.jpg" "$COPY_PATH_bitmap$filename.jpg"
+
+            if [[ "$2" == "-push" ]]; then
+                # Small buffer between the two pushes. git_operations is
+                # synchronous (the PDF push has already finished here), so this
+                # is just a brief spacer between successive pushes to Overleaf.
+                sleep 2
+                cp "$COPY_PATH_bitmap$filename.jpg" "$COPY_PATH_bitmap_push$filename.jpg"
+                short_path5=$(shorten_path "$COPY_PATH_bitmap$filename.jpg")
+                short_path6=$(shorten_path "$COPY_PATH_bitmap_push$filename.jpg")
+                echo "$short_path5 copied to $short_path6 for push to Overleaf"
+                echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
+                git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
+                echo
+                echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed.${RESET}"
+            fi
+            echo
+            echo
+            echo "----------------------------------------------------------------------------"
+            # Record what we just processed so later duplicate events for the
+            # same content are skipped at queue time.
+            record_processed_hash "$file_to_process"
         fi
+        # Remove the just-processed file from the queue
+        CHANGED_FILES=("${CHANGED_FILES[@]:1}")
+        # Only announce "waiting" once the queue is actually empty; otherwise
+        # report how many edits are still pending so the message isn't deceptive.
+        if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
+            echo "${#CHANGED_FILES[@]} more queued figure change(s) to process..."
+        else
+            echo "Waiting for the next detected figure file change."
+        fi
+        echo
+        # Sleep for the specified interval before the next commit
+        sleep "$COMMIT_INTERVAL_SECONDS"
+    else
+        # Poll again after a pause. A longer interval means fewer CPU wakeups
+        # (better battery); worst-case latency to notice a new edit is about
+        # POLL_INTERVAL_SECONDS plus the debounce.
+        sleep "$POLL_INTERVAL_SECONDS"
     fi
 done

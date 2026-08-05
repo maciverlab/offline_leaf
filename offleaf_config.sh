@@ -1,10 +1,11 @@
 #!/bin/bash
 
 # Path to Overleaf project repository
-GIT_PATH="/Users/maciver/Downloads/test/6604ab05a1dfc483ce5bbb9c/"
+GIT_PATH="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u.northwestern.edu/My Drive/_OVERLEAF_PROJECTS/peeking_68b9eb799a68dcb7c6433ec7/overleaf/68b9eb799a68dcb7c6433ec7/"
 
 # Path to directory for figure file master versions, needed for figleaf.sh
-WATCH_PATH_CONVERT="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u.northwestern.edu/My Drive/habmeth_temp_test/figures/watched/"
+WATCH_PATH_CONVERT="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u.northwestern.edu/My Drive/_OVERLEAF_PROJECTS/peeking_68b9eb799a68dcb7c6433ec7/figures/watched/"
+
 
 
 #######################################
@@ -13,7 +14,7 @@ WATCH_PATH_CONVERT="/Users/maciver/Library/CloudStorage/GoogleDrive-maciverlab@u
 
 # Path to directories where the optimized vector and bitmap files are kept
 COPY_PATH_bitmap="${WATCH_PATH_CONVERT}../unwatched/prepress_bitmap/"
-COPY_PATH_vector="${WATCH_PATH_CONVERT}../unwatched/prepress_vector/"
+COPY_PATH_pdf="${WATCH_PATH_CONVERT}../unwatched/prepress_pdf/"
 
 # Path to directories where Overleaf repository keeps vector and bitmap files
 COPY_PATH_bitmap_push="${GIT_PATH}figures/bitmap/"
@@ -22,9 +23,13 @@ COPY_PATH_vector_push="${GIT_PATH}figures/vector/"
 # Path to temporary directory for optimized vector or converted bitmap files from figleaf.sh
 TEMP_PATH="/tmp/"  # Temporary directory to store converted files
 
-COMMIT_INTERVAL_SECONDS=15 # Minimum gap between commits
-GIT_PULL_INTERVAL_SECONDS=20 # Interval to perform git pull in background
-DEBOUNCE_SECONDS=15 # After an fswatch event is detected, wait this long before detecting another
+COMMIT_INTERVAL_SECONDS=3 # Minimum gap between commits
+GIT_PULL_INTERVAL_SECONDS=90 # Interval to perform git pull in background (offleaf.sh); higher = fewer network wakeups
+DEBOUNCE_SECONDS=5 # After an fswatch event is detected, wait this long before detecting another
+POLL_INTERVAL_SECONDS=3 # How often the main loop wakes to check for changes when idle; higher = better battery
+
+# Set to 1 for verbose diagnostic output from offleaf.sh/figleaf.sh, 0 to silence
+DEBUG=0
 
 # Locations of fswatch and convert
 FSWATCH="/opt/homebrew/bin/fswatch"

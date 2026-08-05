@@ -1,4 +1,5 @@
-DEBUG=1
+# DEBUG comes from the config file (offleaf_config.sh); default to off if not set
+DEBUG=${DEBUG:-0}
 
 
 function relative_path() {
@@ -43,7 +44,7 @@ function git_operations {
         echo "$result Error committing file $1 to the repository."
     fi
 
-    git -C "$GIT_PATH" gc # Garbage collect to fix hanging push
+    git -C "$GIT_PATH" gc --auto # Garbage collect only when needed (safety net for hanging push)
     output=$(git -C "$GIT_PATH" push 2>&1)  # Redirect stderr to stdout to capture all output
     if [[ $output == *"failed to push"* && $apply_stash -eq 1 ]]; then
         echo -e "${RED}Merge conflict detected during push."

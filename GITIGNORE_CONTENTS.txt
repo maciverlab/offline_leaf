@@ -1,5 +1,3 @@
-main.pdf
-supplementary.pdf
 .DS_Store
 *.out
 *.tmp
@@ -14,6 +12,5 @@ supplementary.pdf
 *.swp
 *.toc
 *.swo
+/*.pdf
 default.profraw
-
-
