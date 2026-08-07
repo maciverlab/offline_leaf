@@ -298,5 +298,4 @@ Notes:
 
 ---
 
-*Written by Malcolm A. MacIver with assistance from German Espinosa, Northwestern
-University — https://robotics.northwestern.edu/*
+*Written by Malcolm A. MacIver*
