@@ -66,8 +66,20 @@ function git_pull_background {
 function reconcile_startup {
     local relpath abs found=0
     echo "Checking for changes made while offleaf was not running..."
-    # Pull first so any local commits build on the latest remote.
-    git -C "$GIT_PATH" pull --no-edit >/dev/null 2>&1
+    # Pull first so any local commits build on the latest remote, and REPORT
+    # what it brought down -- a common reason to start offleaf is to pick up
+    # edits made in the Overleaf web editor, and those should be visible.
+    local pull_out
+    pull_out=$(git -C "$GIT_PATH" pull --no-edit 2>&1)
+    if [[ "$pull_out" == *"Already up to date."* ]]; then
+        echo "Local repository is already up to date with Overleaf."
+    elif [[ "$pull_out" == *"fatal:"* || "$pull_out" == *"error:"* || "$pull_out" == *"CONFLICT"* ]]; then
+        echo "Could not cleanly pull from Overleaf at startup (will retry in the background):"
+        echo "$pull_out"
+    else
+        echo -e "${RED}Pulled updates from Overleaf into your local files:${RESET}"
+        echo "$pull_out"
+    fi
     # Modified-vs-HEAD tracked files plus untracked files; filtered to .tex/.bib.
     while IFS= read -r relpath; do
         [ -z "$relpath" ] && continue
@@ -86,7 +98,7 @@ function reconcile_startup {
             git -C "$GIT_PATH" -c core.quotepath=false ls-files --others --exclude-standard 2>/dev/null
         } | sort -u
     )
-    [ "$found" -eq 0 ] && echo "No pre-existing .tex/.bib changes to reconcile."
+    [ "$found" -eq 0 ] && echo "No local .tex/.bib changes to reconcile (any Overleaf-side edits were pulled above)."
 }
 
 

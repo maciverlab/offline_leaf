@@ -38,10 +38,18 @@ function git_operations {
         echo "Error adding file $1 to the repository."
     fi
 
-    git -C "$GIT_PATH" commit -m "[Auto] Update $rel_file"
-    result=$?
-    if [[ $result -ne 0 && $result -ne 1 ]]; then
-        echo "$result Error committing file $1 to the repository."
+    # Only commit if the add actually staged something. Otherwise git prints a
+    # noisy "nothing added to commit ... Untracked files:" status dump -- which
+    # happens whenever a watched file was changed by a pull (not by us), so
+    # there is nothing of ours to record.
+    if git -C "$GIT_PATH" diff --cached --quiet; then
+        : # nothing staged; skip the commit (and its noise)
+    else
+        git -C "$GIT_PATH" commit -m "[Auto] Update $rel_file"
+        result=$?
+        if [[ $result -ne 0 && $result -ne 1 ]]; then
+            echo "$result Error committing file $1 to the repository."
+        fi
     fi
 
     git -C "$GIT_PATH" gc --auto # Garbage collect only when needed (safety net for hanging push)
@@ -52,7 +60,7 @@ function git_operations {
         git -C "$GIT_PATH" stash
         git -C "$GIT_PATH" pull
         if [[ $? -eq 0 ]]; then
-            date > .last_succesful_pull
+            date > "$last_successful_pull"
         fi
         git -C "$GIT_PATH" stash apply 0
         git -C "$GIT_PATH" add "$rel_file"
