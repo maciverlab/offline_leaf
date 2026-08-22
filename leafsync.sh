@@ -81,6 +81,9 @@ load_conf() {
 }
 
 # save_conf_var KEY VALUE  (rewrites CONF_FILE atomically, no sed -i)
+# The value is written with %q because load_conf sources this file and the
+# paths routinely contain spaces ("My Drive"); an unquoted value would assign
+# only the first word and try to run the rest as a command.
 save_conf_var() {
     local key="$1" val="$2" tmp
     tmp="$(mktemp "$STATE_DIR/conf.XXXXXX")" || return 1
@@ -92,7 +95,7 @@ save_conf_var() {
             esac
         done < "$CONF_FILE"
     fi
-    printf '%s=%s\n' "$key" "$val" >> "$tmp"
+    printf '%s=%q\n' "$key" "$val" >> "$tmp"
     mv "$tmp" "$CONF_FILE"
 }
 
