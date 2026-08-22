@@ -126,17 +126,29 @@ Use option 4 to convert figures locally without pushing. Stop a watcher with
 
 ## Directory layout (new projects)
 
+A project lives in **two** places, and the split is deliberate.
+
+**1. Figure masters — on a shared cloud drive** (`FIGURES_BASE_DIR`, e.g. Google
+Drive), so several people can edit them at once:
+
 ```
 _OVERLEAF_PROJECTS/<name>_<id>/
-├── figures/
-│   ├── watched/                       # figure MASTERS (watched by figleaf)
-│   │   ├── prepress_vector/           #   e.g. Illustrator .ai files here
-│   │   ├── prepress_pdf/
-│   │   └── prepress_bitmap/
-│   └── unwatched/                     # generated staging (not watched)
-│       ├── prepress_pdf/              #   optimized PDFs land here
-│       ├── prepress_vector/
-│       └── prepress_bitmap/           #   JPGs land here
+└── figures/
+    ├── watched/                       # figure MASTERS (watched by figleaf)
+    │   ├── prepress_vector/           #   e.g. Illustrator .ai files here
+    │   ├── prepress_pdf/
+    │   └── prepress_bitmap/
+    └── unwatched/                     # generated staging (not watched)
+        ├── prepress_pdf/              #   optimized PDFs land here
+        ├── prepress_vector/
+        └── prepress_bitmap/           #   JPGs land here
+```
+
+**2. The Overleaf git clone — on local disk** (`PROJECTS_BASE_DIR`), one per
+machine, never in a syncing folder:
+
+```
+~/overleaf_projects/<name>_<id>/
 └── <id>/                              # the Overleaf git clone  (= GIT_PATH)
     ├── offleaf_config.sh              #   the ONLY per-project script/config
     └── figures/
@@ -144,10 +156,21 @@ _OVERLEAF_PROJECTS/<name>_<id>/
         └── bitmap/                    #   JPGs pushed here
 ```
 
+`leafsync.sh` asks for both base directories the first time and remembers them
+in `~/.config/leafsync/leafsync.conf`.
+
 The figure **masters** live outside the git repo (under `figures/watched/`), so
 they're never committed to Overleaf — only their optimized PDF/JPG outputs are.
-For collaboration, keep the whole project folder on a shared cloud drive (e.g.
-Google Drive) so lab members can edit masters; see *Collaboration* below.
+
+Why the clone is *not* on the cloud drive: Overleaf's git remote is already the
+sync layer, and a second one racing on the same `.git` is actively harmful.
+`index.lock` gives no mutual exclusion across machines, whole-file sync latency
+loses ref and index updates, and `git gc --auto` can repack objects another
+machine has not yet received. Sync clients also leave conflict copies (e.g.
+`main (1).tex`) that `offleaf.sh` would happily commit. Each machine therefore
+clones separately and they coordinate through Overleaf, as intended. Setting up
+a project a second time on another machine reuses the existing shared figure
+tree untouched and clones fresh locally.
 
 ---
 
@@ -231,8 +254,9 @@ Deleting `hashes/<id>/` makes the next figleaf run do a full initial sync again.
 
 ## Collaboration
 
-Keep the project folder on a shared cloud drive and give collaborators
-read/write access to the figure directories. Workflow:
+Keep the **figure** folder (`FIGURES_BASE_DIR/<name>_<id>/figures/`) on a shared
+cloud drive and give collaborators read/write access to it. The git clone stays
+local to each machine and is not shared this way. Workflow:
 
 1. Do early figure edits in `figures/unwatched/prepress_vector/` (or `_pdf` /
    `_bitmap`) — nothing there is watched or pushed.

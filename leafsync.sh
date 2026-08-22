@@ -315,28 +315,69 @@ write_project_config() {
     printf '%s\n' "$tmpl" > "$config_out"
 }
 
-# Resolve the base directory that holds all projects, prompting/persisting once.
+# True if the path lives inside a file-syncing folder (Google Drive, Dropbox,
+# iCloud, OneDrive). A git clone under one of those races with the sync client:
+# index.lock provides no cross-machine mutual exclusion, whole-file sync latency
+# loses ref and index updates, and "gc --auto" can repack objects another
+# machine has not yet received. Overleaf's git remote is already the sync layer.
+is_cloud_synced() {
+    case "$1" in
+        */Library/CloudStorage/*|*/Dropbox/*|*/Google\ Drive*|*/OneDrive*|*/com~apple~CloudDocs/*)
+            return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Resolve the base directory that holds the local clones, prompting/persisting
+# once. This must be ordinary local disk -- see is_cloud_synced() above.
+# NOTE: only writes to stderr (warn/ask); stdout carries the resolved path.
 resolve_base_dir() {
     if [ -n "$PROJECTS_BASE_DIR" ] && [ -d "$PROJECTS_BASE_DIR" ]; then
         printf '%s' "$PROJECTS_BASE_DIR"; return 0
     fi
-    local guess reply
-    guess="$(ls -d "$HOME"/Library/CloudStorage/GoogleDrive-*/My\ Drive/_OVERLEAF_PROJECTS 2>/dev/null | head -1)"
-    if [ -n "$guess" ]; then
-        reply="$(ask "Base directory for projects:  ($guess) [default] ")"
-        [ -z "$reply" ] && reply="$guess"
-    else
-        reply="$(ask "Base directory for projects (none detected; enter a path): ")"
-    fi
+    local guess reply ov
+    guess="$HOME/overleaf_projects"
+    reply="$(ask "Base directory for local clones:  ($guess) [default] ")"
+    [ -z "$reply" ] && reply="$guess"
     [ -z "$reply" ] && { warn "No base directory given."; return 1; }
+    if is_cloud_synced "$reply"; then
+        warn "$reply looks like a file-syncing folder (Drive/Dropbox/iCloud)."
+        warn "Keeping a clone there can lose commits or corrupt the object store."
+        ov="$(ask 'Use it anyway? [y/N]: ')"
+        case "$ov" in y|Y) ;; *) warn "Pick a path on local disk."; return 1 ;; esac
+    fi
     [ -d "$reply" ] || mkdir -p "$reply" || { warn "Cannot create $reply"; return 1; }
     save_conf_var "PROJECTS_BASE_DIR" "$reply"
     PROJECTS_BASE_DIR="$reply"
     printf '%s' "$reply"
 }
 
+# Resolve the base directory that holds the shared figure trees. Unlike the
+# clones, this one belongs in cloud storage: the figure masters are edited by
+# several people and are not a git repository, so a syncing folder is the whole
+# point -- figleaf.sh picks up their edits and pushes the results to Overleaf.
+# NOTE: only writes to stderr (warn/ask); stdout carries the resolved path.
+resolve_figures_base_dir() {
+    if [ -n "$FIGURES_BASE_DIR" ] && [ -d "$FIGURES_BASE_DIR" ]; then
+        printf '%s' "$FIGURES_BASE_DIR"; return 0
+    fi
+    local guess reply
+    guess="$(ls -d "$HOME"/Library/CloudStorage/GoogleDrive-*/My\ Drive/_OVERLEAF_PROJECTS 2>/dev/null | head -1)"
+    if [ -n "$guess" ]; then
+        reply="$(ask "Base directory for shared figures:  ($guess) [default] ")"
+        [ -z "$reply" ] && reply="$guess"
+    else
+        reply="$(ask "Base directory for shared figures (none detected; enter a path): ")"
+    fi
+    [ -z "$reply" ] && { warn "No figures directory given."; return 1; }
+    [ -d "$reply" ] || mkdir -p "$reply" || { warn "Cannot create $reply"; return 1; }
+    save_conf_var "FIGURES_BASE_DIR" "$reply"
+    FIGURES_BASE_DIR="$reply"
+    printf '%s' "$reply"
+}
+
 new_project() {
-    local id name base project_dir repo watch fswatch convert sane
+    local id name base figbase project_dir repo fig_dir watch fswatch convert sane
 
     id="$(ask 'Overleaf project ID: ')"
     case "$id" in
@@ -348,23 +389,33 @@ new_project() {
     sane="$(printf '%s' "$name" | tr -c 'A-Za-z0-9_-' '_')"
 
     base="$(resolve_base_dir)" || exit 1
+    figbase="$(resolve_figures_base_dir)" || exit 1
     project_dir="$base/${sane}_${id}"
     repo="$project_dir/$id"           # flatter layout: clone dir named <id>
-    watch="$project_dir/figures/watched/"
+    fig_dir="$figbase/${sane}_${id}"  # shared figure tree, deliberately NOT
+    watch="$fig_dir/figures/watched/" # under the clone: see resolve_*_dir above
 
-    if [ -e "$project_dir" ]; then
-        local ov; ov="$(ask "Project dir already exists: $project_dir -- continue anyway? [y/N]: ")"
+    # An existing figure tree is the normal case on a second machine (the cloud
+    # folder already synced it) and on a re-run, so it is not worth a prompt --
+    # every mkdir below is a no-op then, and no master file is touched. Only an
+    # occupied clone path that is not a checkout needs asking about.
+    if [ -e "$repo" ] && [ ! -d "$repo/.git" ]; then
+        local ov; ov="$(ask "Path exists but is not a clone: $repo -- continue anyway? [y/N]: ")"
         case "$ov" in y|Y) ;; *) die "Aborted." ;; esac
     fi
 
-    info "Creating figure directories under $project_dir/figures ..."
+    if [ -d "$fig_dir/figures/watched" ]; then
+        info "Figure tree already present at $fig_dir/figures -- leaving it as is."
+    else
+        info "Creating figure directories under $fig_dir/figures ..."
+    fi
     mkdir -p \
-        "$project_dir/figures/unwatched/prepress_bitmap" \
-        "$project_dir/figures/unwatched/prepress_pdf" \
-        "$project_dir/figures/unwatched/prepress_vector" \
-        "$project_dir/figures/watched/prepress_bitmap" \
-        "$project_dir/figures/watched/prepress_pdf" \
-        "$project_dir/figures/watched/prepress_vector" || die "mkdir failed."
+        "$fig_dir/figures/unwatched/prepress_bitmap" \
+        "$fig_dir/figures/unwatched/prepress_pdf" \
+        "$fig_dir/figures/unwatched/prepress_vector" \
+        "$fig_dir/figures/watched/prepress_bitmap" \
+        "$fig_dir/figures/watched/prepress_pdf" \
+        "$fig_dir/figures/watched/prepress_vector" || die "mkdir failed."
 
     if [ -d "$repo/.git" ]; then
         info "Clone already present at $repo -- skipping clone."
