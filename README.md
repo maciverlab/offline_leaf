@@ -194,9 +194,11 @@ tree untouched and clones fresh locally.
   so **every** master is processed once (a full initial sync); subsequent runs
   only process what actually changed.
 - **No auto-merge.** Masters are assumed to be edited by one person at a time.
-  On a push conflict figleaf reports it and exits (binary auto-merge would be
+  On a genuine conflict figleaf reports it and exits (binary auto-merge would be
   unsafe). It pulls before pushing but does not copy Overleaf's copies back over
   your masters.
+- **Rejected pushes are retried, not fatal.** See *Rejected pushes vs. real
+  conflicts* below — a rejection no longer stops figleaf.
 
 ## `offleaf.sh` details
 
@@ -204,10 +206,49 @@ tree untouched and clones fresh locally.
   commits/pushes them.
 - Pulls from Overleaf in the background on an interval and reports whether your
   local copy is in sync.
-- **Conflict handling:** on a push conflict it stashes, pulls, re-applies, and
-  tells you how to resolve any remaining merge markers in the affected file.
+- **Conflict handling:** on a genuine conflict it stashes, pulls, re-applies, and
+  tells you how to resolve any remaining merge markers in the affected file. A
+  merely *rejected* push is retried instead — see below.
 - **Startup reconciliation:** on launch it commits/pushes any `.tex`/`.bib`
   that were modified or added while offleaf was not running.
+
+---
+
+## Rejected pushes vs. real conflicts
+
+These are different problems and are handled differently.
+
+**A rejected push** means the Overleaf remote gained commits between our pull
+and our push. While anyone is typing in the Overleaf web editor, the git bridge
+mints an `Update on Overleaf.` commit every few seconds, so with a collaborator
+active this is routine rather than exceptional. Nothing is conflicted: the files
+the scripts write (`figures/*`, or one `.tex`) are not the ones the collaborator
+touched. The fix is simply to pull and push again.
+
+Both scripts now do that automatically, retrying up to `PUSH_MAX_ATTEMPTS` times
+with `PUSH_RETRY_SLEEP` seconds between attempts (defaults `5` and `3`; override
+either in `offleaf_config.sh`). Two shapes of rejection are recognised: the usual
+non-fast-forward, and the tighter race where the remote advances while the push
+is in flight (`cannot lock ref … is at X but expected Y`). A failure that
+retrying cannot fix — authentication, network, a rejecting hook — is reported
+immediately rather than retried.
+
+> Earlier versions treated *any* push failure as a merge conflict, because the
+> check matched the string `failed to push`, which git prints in both cases.
+> figleaf would print "Merge conflict detected during push" and exit, on what
+> was usually just a stale ref. If you see that message from an old copy, this
+> is what it meant.
+
+**A real conflict** means two sides changed the same lines, and a person has to
+choose. This surfaces in the **pull**, not the push, so that is where it is
+detected — via `git ls-files --unmerged`. When it happens the scripts stop
+immediately, name the conflicted files, and leave the repository untouched:
+nothing is added, committed, or pushed. Resolve the markers by hand and commit.
+
+> A conflicted pull used to fall through to `git add` and `git commit`, which
+> staged the file with its `<<<<<<<` markers still in it, recorded that as the
+> resolution, and pushed the markers to Overleaf. If a `.tex` in your project
+> ever acquired stray conflict markers, this was why.
 
 ---
 
@@ -246,6 +287,8 @@ Other settings (sensible defaults shown):
 | `GIT_PULL_INTERVAL_SECONDS` | `90` | Background pull interval (offleaf); higher = fewer network wakeups |
 | `DEBOUNCE_SECONDS` | `5` | Quiet period after an edit before processing (so one save = one commit) |
 | `POLL_INTERVAL_SECONDS` | `3` | How often the loop wakes when idle; higher = better battery |
+| `PUSH_MAX_ATTEMPTS` | `5` | Attempts before giving up on a push the remote keeps rejecting |
+| `PUSH_RETRY_SLEEP` | `3` | Seconds between those attempts |
 | `DEBUG` | `0` | Set to `1` for verbose diagnostics |
 
 > **Note:** because `offleaf_config.sh` is machine-independent, a collaborator
