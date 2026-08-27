@@ -193,6 +193,11 @@ tree untouched and clones fresh locally.
   "touch" them. On the **very first run for a project** the hash store is empty,
   so **every** master is processed once (a full initial sync); subsequent runs
   only process what actually changed.
+- **A figure is only marked processed if its pushes succeeded.** If a push does
+  not land, the hash is deliberately not recorded and figleaf says so, so the
+  figure is retried on the next change or the next run. Otherwise a figure whose
+  push failed would be marked done for good and Overleaf would silently keep the
+  stale version.
 - **No auto-merge.** Masters are assumed to be edited by one person at a time.
   On a genuine conflict figleaf reports it and exits (binary auto-merge would be
   unsafe). It pulls before pushing but does not copy Overleaf's copies back over

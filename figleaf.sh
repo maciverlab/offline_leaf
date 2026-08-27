@@ -291,6 +291,11 @@ while true; do
             echo "Detected change in ""$short_path1"": Begin processing..."
             filename=$(basename -- "$file_to_process")
             filename="${filename%.*}"
+            # Tracks whether every push for this figure actually landed. The
+            # content hash is recorded only if it did: marking a figure as
+            # processed after a failed push would mean it is never retried,
+            # and Overleaf would silently keep the stale version.
+            push_ok=1
             # Copy the .ai file to VECTOR_UPLOAD with a .pdf extension
             cp "$file" "$COPY_PATH_pdf$filename.pdf"
             short_path2=$(shorten_path "$COPY_PATH_pdf$filename.pdf")
@@ -303,10 +308,17 @@ while true; do
                 short_path3=$(shorten_path "$COPY_PATH_vector_push$filename.pdf")
                 echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
                 git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
-                echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
-                echo
-                echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed.${RESET}"
-                echo
+                if [ $? -ne 0 ]; then
+                    push_ok=0
+                    echo
+                    echo -e "${RED}Push of $filename.pdf to $OVERLEAF_ID did NOT complete.${RESET}"
+                    echo
+                else
+                    echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
+                    echo
+                    echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed.${RESET}"
+                    echo
+                fi
             fi
 
             # Generate bitmap file
@@ -331,15 +343,29 @@ while true; do
                 echo "$short_path5 copied to $short_path6 for push to Overleaf"
                 echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
                 git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
-                echo
-                echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed.${RESET}"
+                if [ $? -ne 0 ]; then
+                    push_ok=0
+                    echo
+                    echo -e "${RED}Push of $filename.jpg to $OVERLEAF_ID did NOT complete.${RESET}"
+                else
+                    echo
+                    echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed.${RESET}"
+                fi
             fi
             echo
             echo
             echo "----------------------------------------------------------------------------"
             # Record what we just processed so later duplicate events for the
-            # same content are skipped at queue time.
-            record_processed_hash "$file_to_process"
+            # same content are skipped at queue time -- but only if the pushes
+            # succeeded. Recording a figure whose push failed would mark it done
+            # for good, so it would never be retried and Overleaf would keep the
+            # stale version with no further warning.
+            if [ "$push_ok" -eq 1 ]; then
+                record_processed_hash "$file_to_process"
+            else
+                echo -e "${RED}Not marking $filename as processed; it will be"
+                echo -e "reprocessed on the next change, or on the next run.${RESET}"
+            fi
         fi
         # Remove the just-processed file from the queue
         CHANGED_FILES=("${CHANGED_FILES[@]:1}")
