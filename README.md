@@ -214,12 +214,29 @@ tree untouched and clones fresh locally.
 ## Configuration (`offleaf_config.sh`)
 
 `leafsync.sh` generates this per project from `offleaf_config.template.sh`; you
-rarely need to edit it by hand. The two paths you'd ever change are at the top:
+rarely need to edit it by hand.
+
+This file is committed into the Overleaf project and is **machine-independent**:
+it stores nothing that differs between machines, so the same file is correct
+everywhere and no machine's push can clobber another's. It holds only two
+substituted values, both project-invariant:
 
 | Variable | Meaning |
 | --- | --- |
-| `GIT_PATH` | Absolute path to the Overleaf git clone. **Must end in `/`.** |
-| `WATCH_PATH_CONVERT` | Absolute path to the figure masters dir (`figures/watched/`). **Must end in `/`.** |
+| `FIGURES_SUBPATH` | Figure masters dir *relative to* this machine's `FIGURES_BASE_DIR`, e.g. `myproject_<id>/figures/watched/` |
+| `OVERLEAF_ID` | The Overleaf project ID |
+
+Everything else that used to be hard-coded is now derived at run time:
+
+| Variable | Derived from |
+| --- | --- |
+| `GIT_PATH` | The directory this config file sits in (`BASH_SOURCE`) — the clone locates itself |
+| `WATCH_PATH_CONVERT` | `FIGURES_BASE_DIR` (per machine, from `~/.config/leafsync/leafsync.conf`) + `FIGURES_SUBPATH` |
+| `FSWATCH` / `CONVERT` | `command -v`, falling back to the Homebrew paths |
+
+If `FIGURES_BASE_DIR` has never been recorded on a machine, the config says so
+and leaves `WATCH_PATH_CONVERT` empty. `offleaf.sh` still runs (it only needs
+the clone); `figleaf.sh` needs it, so run `leafsync.sh` once on that machine.
 
 Other settings (sensible defaults shown):
 
@@ -230,11 +247,10 @@ Other settings (sensible defaults shown):
 | `DEBOUNCE_SECONDS` | `5` | Quiet period after an edit before processing (so one save = one commit) |
 | `POLL_INTERVAL_SECONDS` | `3` | How often the loop wakes when idle; higher = better battery |
 | `DEBUG` | `0` | Set to `1` for verbose diagnostics |
-| `FSWATCH` / `CONVERT` | (from `PATH`) | Locations of `fswatch` and `magick` |
 
-> **Note:** `offleaf_config.sh` contains absolute, machine-specific paths and is
-> committed into the Overleaf project for convenience. A collaborator on a
-> different machine must regenerate it (run `leafsync.sh`) before syncing.
+> **Note:** because `offleaf_config.sh` is machine-independent, a collaborator
+> on a different machine can use the committed file as-is. They only need
+> `leafsync.sh` to have recorded their own `FIGURES_BASE_DIR` once.
 
 ---
 
@@ -296,8 +312,9 @@ confirmation. Nothing is changed automatically.
 ## Manual use (without `leafsync.sh`)
 
 You can run the watchers directly. Ensure the project has an
-`offleaf_config.sh` (copy `offleaf_config.template.sh`, fill in `GIT_PATH`,
-`WATCH_PATH_CONVERT`, and `OVERLEAF_ID`, keeping the trailing slashes), then:
+`offleaf_config.sh` (copy `offleaf_config.template.sh` into the clone and fill
+in `FIGURES_SUBPATH` and `OVERLEAF_ID`, keeping the trailing slash on the
+former), then:
 
 ```bash
 # figures, with push to Overleaf:

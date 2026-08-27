@@ -306,15 +306,15 @@ ensure_pushed_figure_dirs() {
 }
 
 # Generate offleaf_config.sh from the template (bash substitution, no sed).
+# Only PROJECT-INVARIANT values are substituted. Everything machine-specific --
+# the clone location, the figures base, the tool paths -- is derived at runtime
+# by the config itself, so the committed file is byte-identical on every machine
+# and no machine's push can clobber another's.
 write_project_config() {
-    local config_out="$1" git_path="$2" watch_path="$3" overleaf_id="$4"
-    local fswatch="$5" convert="$6" tmpl
+    local config_out="$1" figures_subpath="$2" overleaf_id="$3" tmpl
     tmpl="$(cat "$SCRIPT_DIR/offleaf_config.template.sh")" || return 1
-    tmpl="${tmpl//__GIT_PATH__/$git_path}"
-    tmpl="${tmpl//__WATCH_PATH_CONVERT__/$watch_path}"
+    tmpl="${tmpl//__FIGURES_SUBPATH__/$figures_subpath}"
     tmpl="${tmpl//__OVERLEAF_ID__/$overleaf_id}"
-    tmpl="${tmpl//__FSWATCH__/$fswatch}"
-    tmpl="${tmpl//__CONVERT__/$convert}"
     printf '%s\n' "$tmpl" > "$config_out"
 }
 
@@ -380,7 +380,7 @@ resolve_figures_base_dir() {
 }
 
 new_project() {
-    local id name base figbase project_dir repo fig_dir watch fswatch convert sane
+    local id name base figbase project_dir repo fig_dir sane
 
     id="$(ask 'Overleaf project ID: ')"
     case "$id" in
@@ -395,8 +395,10 @@ new_project() {
     figbase="$(resolve_figures_base_dir)" || exit 1
     project_dir="$base/${sane}_${id}"
     repo="$project_dir/$id"           # flatter layout: clone dir named <id>
-    fig_dir="$figbase/${sane}_${id}"  # shared figure tree, deliberately NOT
-    watch="$fig_dir/figures/watched/" # under the clone: see resolve_*_dir above
+    # Shared figure tree, deliberately NOT under the clone: see resolve_*_dir.
+    # Its project-relative tail, "${sane}_${id}/figures/watched/", is what goes
+    # into the committed config -- the base is per-machine and stays local.
+    fig_dir="$figbase/${sane}_${id}"
 
     # An existing figure tree is the normal case on a second machine (the cloud
     # folder already synced it) and on a re-run, so it is not worth a prompt --
@@ -433,10 +435,8 @@ new_project() {
 
     ensure_gitignore "$repo"
 
-    fswatch="${FSWATCH_BIN:-/opt/homebrew/bin/fswatch}"
-    convert="${CONVERT_BIN:-/opt/homebrew/bin/magick}"
     info "Writing offleaf_config.sh ..."
-    write_project_config "$repo/offleaf_config.sh" "$repo/" "$watch" "$id" "$fswatch" "$convert" \
+    write_project_config "$repo/offleaf_config.sh" "${sane}_${id}/figures/watched/" "$id" \
         || die "Could not write config."
     git -C "$repo" add offleaf_config.sh
     git -C "$repo" commit -m "changes to configuration" >/dev/null 2>&1
