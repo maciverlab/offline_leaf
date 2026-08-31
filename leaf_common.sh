@@ -77,6 +77,15 @@ function push_with_retry {
     done
 }
 
+# Local date and time for user-facing notices, e.g. "Aug 31 at 9:53 am".
+# One date call, then the AM/PM suffix is lowercased on its own so the month
+# abbreviation keeps its capital letter.
+function now_stamp {
+    local s
+    s=$(date '+%b %-d at %-I:%M %p')
+    printf '%s %s' "${s% *}" "$(printf '%s' "${s##* }" | tr '[:upper:]' '[:lower:]')"
+}
+
 function git_operations {
     local apply_stash=$1 # First argument is now the apply_stash flag
     shift # Shift the arguments so $1 and onwards are as before
