@@ -311,7 +311,7 @@ while true; do
                 if [ $? -ne 0 ]; then
                     push_ok=0
                     echo
-                    echo -e "${RED}Push of $filename.pdf to $OVERLEAF_ID did NOT complete.${RESET}"
+                    echo -e "${RED}Push of $filename.pdf to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
                     echo
                 else
                     echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
@@ -346,7 +346,7 @@ while true; do
                 if [ $? -ne 0 ]; then
                     push_ok=0
                     echo
-                    echo -e "${RED}Push of $filename.jpg to $OVERLEAF_ID did NOT complete.${RESET}"
+                    echo -e "${RED}Push of $filename.jpg to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
                 else
                     echo
                     echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
