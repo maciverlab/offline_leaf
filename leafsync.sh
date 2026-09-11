@@ -288,11 +288,18 @@ EOF
 
 # Ensure figures/vector and figures/bitmap exist in the repo and are tracked
 # (git cannot track empty dirs, so seed a .gitkeep); commit/push if created.
+#
+# The .gitkeep is seeded whenever it is absent, NOT only when the directory is
+# empty. A directory that already holds figures is precisely the one that can
+# later be emptied -- delete the folder in the Overleaf editor and the next pull
+# removes the last tracked file, at which point git drops the directory from the
+# working tree and every subsequent figleaf copy into it fails. The .gitkeep is
+# what keeps the directory alive across that deletion.
 ensure_pushed_figure_dirs() {
     local repo="$1" changed=0 d
     for d in figures/vector figures/bitmap; do
         mkdir -p "$repo/$d"
-        if [ ! -f "$repo/$d/.gitkeep" ] && [ -z "$(ls -A "$repo/$d" 2>/dev/null)" ]; then
+        if [ ! -f "$repo/$d/.gitkeep" ]; then
             : > "$repo/$d/.gitkeep"
             git -C "$repo" add "$d/.gitkeep"
             changed=1

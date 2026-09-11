@@ -8,8 +8,18 @@
 # Optionally: call with -push, which will push the detected figure
 # file changes to the Overleaf repository
 
-FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
-last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
+# Scratch files live under ~/.config/leafsync/run, NOT under /tmp. macOS runs
+# /usr/libexec/tmp_cleaner from launchd every night at midnight, and it deletes
+# anything in /tmp whose atime, mtime AND ctime are all more than three days
+# old. Both files below are touched only when a figure actually changes (and
+# the poll loop reads the event file with "wc -c", an fstat that does not
+# refresh atime), so a quiet stretch of more than three days was enough for the
+# cleaner to delete them out from under a running figleaf -- after which the
+# poll failed every cycle and no figure change was ever noticed again.
+RUN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/leafsync/run"
+mkdir -p "$RUN_DIR"
+FSWATCH_OUTPUT_FILE_FIGLEAF=$(mktemp "$RUN_DIR/offline_leaf.XXXXXXXX")
+last_successful_pull=$(mktemp "$RUN_DIR/last_successful_pull.XXXXXXXX")
 # HASH_DIR (the persistent, per-project content-hash store) is set below,
 # after the config file is sourced, since it is keyed by OVERLEAF_ID.
 
@@ -48,15 +58,37 @@ source "${SCRIPT_DIR}/leaf_common.sh"
 HASH_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/leafsync/hashes/${OVERLEAF_ID:-default}"
 mkdir -p "$HASH_DIR"
 
+# Stop the watcher we started. fswatch can sit blocked in the FSEvents run loop
+# and ignore SIGTERM, so escalate to SIGKILL rather than let "wait" hang the
+# caller forever; a plain kill+wait would turn Ctrl-C into a hang.
+stop_fswatch() {
+    [ -n "$FSWATCH_PID" ] || return 0
+    kill "$FSWATCH_PID" 2>/dev/null
+    for _ in 1 2 3; do
+        kill -0 "$FSWATCH_PID" 2>/dev/null || break
+        sleep 1
+    done
+    kill -0 "$FSWATCH_PID" 2>/dev/null && kill -9 "$FSWATCH_PID" 2>/dev/null
+    wait "$FSWATCH_PID" 2>/dev/null
+    FSWATCH_PID=""
+}
+
 function terminate_script {
     echo
     echo "Terminating figleaf; clearing temp files."
-    rm "$FSWATCH_OUTPUT_FILE_FIGLEAF"
-    rm "$last_successful_pull"
+    # Kill the watcher we started. Without this, every exit leaves an fswatch
+    # behind -- reparented to launchd, still recursively watching a cloud-synced
+    # folder and still appending to a scratch file nothing will ever read.
+    stop_fswatch
+    rm -f "$FSWATCH_OUTPUT_FILE_FIGLEAF"
+    rm -f "$last_successful_pull"
     exit
 }
 
-trap terminate_script SIGINT
+# SIGHUP matters as much as SIGINT here: closing the terminal window sends HUP,
+# whose default action kills bash without running a SIGINT-only trap -- which is
+# how the stray fswatch processes were being orphaned.
+trap terminate_script SIGINT SIGTERM SIGHUP
 
 
 shorten_path() {
@@ -150,17 +182,23 @@ fi
 
 # Currently only scanning for updates to Illustrator files
 # but excluding the temp files Illustrator creates
-$FSWATCH \
-    --recursive \
-    --batch-marker \
-    --latency 3 \
-    --extended \
-    --exclude=".*" \
-    --include="\\.ai$" \
-    --include="\\.pdf$" \
-    --exclude="ai[0-9]+.*\\.ai$" \
-    --exclude="ai[0-9]+.*\\.pdf$" \
-    "$WATCH_PATH_CONVERT" >"$FSWATCH_OUTPUT_FILE_FIGLEAF" &
+# Wrapped in a function so the main loop can restart the watcher if its output
+# file goes missing; FSWATCH_PID lets terminate_script clean the child up.
+start_fswatch() {
+    $FSWATCH \
+        --recursive \
+        --batch-marker \
+        --latency 3 \
+        --extended \
+        --exclude=".*" \
+        --include="\\.ai$" \
+        --include="\\.pdf$" \
+        --exclude="ai[0-9]+.*\\.ai$" \
+        --exclude="ai[0-9]+.*\\.pdf$" \
+        "$WATCH_PATH_CONVERT" >"$FSWATCH_OUTPUT_FILE_FIGLEAF" &
+    FSWATCH_PID=$!
+}
+start_fswatch
 
 echo "Waiting for the next detected figure file change."
 
@@ -207,8 +245,25 @@ reconcile_startup() {
 reconcile_startup
 
 while true; do
+    # If the event file disappears (an external cleaner, or a stray rm), fswatch
+    # keeps writing to the now-unlinked inode and this loop would never see
+    # another event -- alive, quiet, and permanently deaf. Rebuild both instead.
+    if [ ! -f "$FSWATCH_OUTPUT_FILE_FIGLEAF" ]; then
+        echo "Event file $FSWATCH_OUTPUT_FILE_FIGLEAF disappeared; restarting the watcher."
+        stop_fswatch
+        mkdir -p "$RUN_DIR"
+        : >"$FSWATCH_OUTPUT_FILE_FIGLEAF"
+        CONSUMED_BYTES=0
+        LAST_TOTAL_BYTES=0
+        QUIET_SINCE=$SECONDS
+        start_fswatch
+    fi
+    [ -f "$last_successful_pull" ] || echo "No pull yet" >"$last_successful_pull"
     CURRENT_TIME=$SECONDS
-    TOTAL_BYTES=$(wc -c <"$FSWATCH_OUTPUT_FILE_FIGLEAF")
+    # Default to 0: a failed read leaves TOTAL_BYTES empty, which bash treats as
+    # 0 inside (( )) -- silently wedging the comparisons below rather than erroring.
+    TOTAL_BYTES=$(wc -c <"$FSWATCH_OUTPUT_FILE_FIGLEAF" 2>/dev/null)
+    TOTAL_BYTES=${TOTAL_BYTES:-0}
     # Any new events restart the quiet timer.
     if (( TOTAL_BYTES != LAST_TOTAL_BYTES )); then
         LAST_TOTAL_BYTES=$TOTAL_BYTES
@@ -297,59 +352,103 @@ while true; do
             # and Overleaf would silently keep the stale version.
             push_ok=1
             # Copy the .ai file to VECTOR_UPLOAD with a .pdf extension
-            cp "$file" "$COPY_PATH_pdf$filename.pdf"
+            mkdir -p "$COPY_PATH_pdf"
+            if ! cp "$file" "$COPY_PATH_pdf$filename.pdf"; then
+                echo -e "${RED}Could not stage $filename.pdf; skipping this figure.${RESET}"
+                push_ok=0
+            fi
             short_path2=$(shorten_path "$COPY_PATH_pdf$filename.pdf")
 
             # Convert the .pdf file in the VECTOR_UPLOAD directory to an optimized PDF
             squeeze -o "$COPY_PATH_pdf$filename.pdf"
 
             if [[ "$2" == "-push" ]]; then
-                cp "$COPY_PATH_pdf$filename.pdf" "$COPY_PATH_vector_push$filename.pdf"
+                # Recreate the destination if it has gone missing. git removes a
+                # directory from the working tree when a pull deletes the last
+                # tracked file in it, so someone clearing figures/vector on
+                # Overleaf silently takes this directory with it; without this,
+                # every later copy fails and the figure is never pushed again.
+                mkdir -p "$COPY_PATH_vector_push"
                 short_path3=$(shorten_path "$COPY_PATH_vector_push$filename.pdf")
-                echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
-                git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
-                if [ $? -ne 0 ]; then
+                if ! cp "$COPY_PATH_pdf$filename.pdf" "$COPY_PATH_vector_push$filename.pdf"; then
                     push_ok=0
                     echo
-                    echo -e "${RED}Push of $filename.pdf to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
+                    echo -e "${RED}Could not copy $filename.pdf into $short_path3 on $(now_stamp);${RESET}"
+                    echo -e "${RED}skipping its push.${RESET}"
                     echo
                 else
-                    echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
-                    echo
-                    echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
-                    echo
+                    echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
+                    git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
+                    if [ $? -ne 0 ]; then
+                        push_ok=0
+                        echo
+                        echo -e "${RED}Push of $filename.pdf to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
+                        echo
+                    else
+                        echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
+                        echo
+                        echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
+                        echo
+                    fi
                 fi
             fi
 
             # Generate bitmap file
             outputfile="${TEMP_PATH}${filename}.jpg"
-            # Convert the optimized PDF to a jpg file
-            #
-
-            $CONVERT -density 220 "$COPY_PATH_pdf$filename.pdf" -alpha remove -quality 100 "${outputfile}"
+            bitmap_ok=1
+            # Convert the optimized PDF to a jpg file. The "[0]" selects the FIRST
+            # PAGE ONLY, and is load-bearing: handed a multi-page PDF, ImageMagick
+            # writes one file per page as <name>-0.jpg, <name>-1.jpg, ... and never
+            # writes <name>.jpg at all -- so the mv below failed with ENOENT on its
+            # source and the figure silently never got a bitmap. The document uses
+            # \includegraphics with no page= option, so page one is the only page
+            # that is ever displayed anyway.
+            if ! $CONVERT -density 220 "$COPY_PATH_pdf$filename.pdf[0]" -alpha remove -quality 100 "${outputfile}" \
+               || [ ! -f "$outputfile" ]; then
+                bitmap_ok=0
+                echo
+                echo -e "${RED}Could not render $filename.jpg from the optimized PDF.${RESET}"
+            fi
 
             # Move the jpg file to COPY_PATH_bitmap
-            #
-            mv "$TEMP_PATH$filename.jpg" "$COPY_PATH_bitmap$filename.jpg"
+            mkdir -p "$COPY_PATH_bitmap"
+            if [ "$bitmap_ok" -eq 1 ] && ! mv "$outputfile" "$COPY_PATH_bitmap$filename.jpg"; then
+                bitmap_ok=0
+                echo
+                echo -e "${RED}Could not move $filename.jpg into $(shorten_path "$COPY_PATH_bitmap").${RESET}"
+            fi
+            # A missing bitmap means this figure is only half-synced, so don't let
+            # the hash be recorded -- it must be retried, not marked done.
+            [ "$bitmap_ok" -eq 1 ] || push_ok=0
 
-            if [[ "$2" == "-push" ]]; then
+            if [[ "$2" == "-push" ]] && [ "$bitmap_ok" -eq 1 ]; then
                 # Small buffer between the two pushes. git_operations is
                 # synchronous (the PDF push has already finished here), so this
                 # is just a brief spacer between successive pushes to Overleaf.
                 sleep 2
-                cp "$COPY_PATH_bitmap$filename.jpg" "$COPY_PATH_bitmap_push$filename.jpg"
+                # See the note above the vector push: this directory can also be
+                # removed by a pull that deletes the last file tracked in it.
+                mkdir -p "$COPY_PATH_bitmap_push"
                 short_path5=$(shorten_path "$COPY_PATH_bitmap$filename.jpg")
                 short_path6=$(shorten_path "$COPY_PATH_bitmap_push$filename.jpg")
-                echo "$short_path5 copied to $short_path6 for push to Overleaf"
-                echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
-                git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
-                if [ $? -ne 0 ]; then
+                if ! cp "$COPY_PATH_bitmap$filename.jpg" "$COPY_PATH_bitmap_push$filename.jpg"; then
                     push_ok=0
                     echo
-                    echo -e "${RED}Push of $filename.jpg to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
-                else
+                    echo -e "${RED}Could not copy $filename.jpg into $short_path6 on $(now_stamp);${RESET}"
+                    echo -e "${RED}skipping its push.${RESET}"
                     echo
-                    echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
+                else
+                    echo "$short_path5 copied to $short_path6 for push to Overleaf"
+                    echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
+                    git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
+                    if [ $? -ne 0 ]; then
+                        push_ok=0
+                        echo
+                        echo -e "${RED}Push of $filename.jpg to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
+                    else
+                        echo
+                        echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
+                    fi
                 fi
             fi
             echo

@@ -4,8 +4,15 @@
 # Northwestern University
 # https://robotics.northwestern.edu/
 
-FSWATCH_OUTPUT_FILE_OVERLEAF=$(mktemp /tmp/offline_leaf.XXXXXXXX)
-last_successful_pull=$(mktemp /tmp/last_successful_pull.XXXXXXXX)
+# Scratch files live under ~/.config/leafsync/run, NOT under /tmp. macOS runs
+# /usr/libexec/tmp_cleaner from launchd nightly, deleting anything in /tmp whose
+# atime, mtime AND ctime are all more than three days old. These files are only
+# touched when a watched file changes, so a quiet stretch of a few days was
+# enough for the cleaner to delete them out from under a running offleaf.
+RUN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/leafsync/run"
+mkdir -p "$RUN_DIR"
+FSWATCH_OUTPUT_FILE_OVERLEAF=$(mktemp "$RUN_DIR/offline_leaf.XXXXXXXX")
+last_successful_pull=$(mktemp "$RUN_DIR/last_successful_pull.XXXXXXXX")
 
 # Read in some common functions between
 # offleaf.sh and figleaf.sh
@@ -28,12 +35,31 @@ fi
 
 source "$1"
 
+# Stop the watcher we started. fswatch can sit blocked in the FSEvents run loop
+# and ignore SIGTERM, so escalate to SIGKILL rather than let "wait" hang the
+# caller forever; a plain kill+wait would turn Ctrl-C into a hang.
+stop_fswatch() {
+    [ -n "$FSWATCH_PID" ] || return 0
+    kill "$FSWATCH_PID" 2>/dev/null
+    for _ in 1 2 3; do
+        kill -0 "$FSWATCH_PID" 2>/dev/null || break
+        sleep 1
+    done
+    kill -0 "$FSWATCH_PID" 2>/dev/null && kill -9 "$FSWATCH_PID" 2>/dev/null
+    wait "$FSWATCH_PID" 2>/dev/null
+    FSWATCH_PID=""
+}
+
 function terminate_script {
     echo
     echo "Terminating background git pull process with PID: $GIT_PULL_PID"
     kill $GIT_PULL_PID
-    rm "$FSWATCH_OUTPUT_FILE_OVERLEAF"
-    rm "$last_successful_pull"
+    # Kill the watcher too. Without this, every exit leaves an fswatch behind --
+    # reparented to launchd, still recursively watching the repo and appending
+    # to a scratch file nothing will ever read.
+    stop_fswatch
+    rm -f "$FSWATCH_OUTPUT_FILE_OVERLEAF"
+    rm -f "$last_successful_pull"
     exit
 }
 
@@ -102,7 +128,10 @@ function reconcile_startup {
 }
 
 
-trap 'terminate_script' SIGINT
+# SIGHUP matters as much as SIGINT: closing the terminal window sends HUP, whose
+# default action kills bash without running a SIGINT-only trap -- which is how
+# stray fswatch processes were being orphaned.
+trap 'terminate_script' SIGINT SIGTERM SIGHUP
 
 if [ ! -f "$last_successful_pull" ]; then
     echo "No pull yet" > "$last_successful_pull"
@@ -119,15 +148,21 @@ GIT_PULL_PID=$!
 # Attending to .tex and .bib files.
 
 # Note: Linux users may need to remove the exclude below
-$FSWATCH \
-    --batch-marker \
-    --latency 3 \
-    --recursive \
-    --extended \
-    --exclude=".*" \
-    --include="\\.tex$" \
-    --include="\\.bib$" \
-    "$WATCH_PATH_OVERLEAF" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" &
+# Wrapped in a function so the main loop can restart the watcher if its output
+# file goes missing; FSWATCH_PID lets terminate_script clean the child up.
+start_fswatch() {
+    $FSWATCH \
+        --batch-marker \
+        --latency 3 \
+        --recursive \
+        --extended \
+        --exclude=".*" \
+        --include="\\.tex$" \
+        --include="\\.bib$" \
+        "$WATCH_PATH_OVERLEAF" >"$FSWATCH_OUTPUT_FILE_OVERLEAF" &
+    FSWATCH_PID=$!
+}
+start_fswatch
 
 
 CHANGED_FILES=()
@@ -142,8 +177,25 @@ LAST_TOTAL_BYTES=0
 QUIET_SINCE=0
 
 while true; do
+    # If the event file disappears, fswatch keeps writing to the now-unlinked
+    # inode and this loop would never see another event -- alive, quiet, and
+    # permanently deaf. Rebuild both instead.
+    if [ ! -f "$FSWATCH_OUTPUT_FILE_OVERLEAF" ]; then
+        echo "Event file $FSWATCH_OUTPUT_FILE_OVERLEAF disappeared; restarting the watcher."
+        stop_fswatch
+        mkdir -p "$RUN_DIR"
+        : >"$FSWATCH_OUTPUT_FILE_OVERLEAF"
+        CONSUMED_BYTES=0
+        LAST_TOTAL_BYTES=0
+        QUIET_SINCE=$SECONDS
+        start_fswatch
+    fi
+    [ -f "$last_successful_pull" ] || echo "No pull yet" >"$last_successful_pull"
     CURRENT_TIME=$SECONDS
-    TOTAL_BYTES=$(wc -c <"$FSWATCH_OUTPUT_FILE_OVERLEAF")
+    # Default to 0: a failed read leaves TOTAL_BYTES empty, which bash treats as
+    # 0 inside (( )) -- silently wedging the comparisons below rather than erroring.
+    TOTAL_BYTES=$(wc -c <"$FSWATCH_OUTPUT_FILE_OVERLEAF" 2>/dev/null)
+    TOTAL_BYTES=${TOTAL_BYTES:-0}
     # Any new events restart the quiet timer.
     if (( TOTAL_BYTES != LAST_TOTAL_BYTES )); then
         LAST_TOTAL_BYTES=$TOTAL_BYTES
