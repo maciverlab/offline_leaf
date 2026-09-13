@@ -155,6 +155,12 @@ squeeze() {
             output_file="${base_name}_sq.pdf"
         fi
 
+        # -dFirstPage/-dLastPage keep only the FIRST artboard. An Illustrator
+        # .ai saved with PDF compatibility is itself a PDF, so an N-artboard
+        # master arrives here as an N-page PDF and would be re-distilled whole.
+        # The document shows one image per figure -- \includegraphics with no
+        # page= option, resolving to figures/bitmap first -- so the extra pages
+        # are never displayed, they just enlarge every push permanently.
         gs \
         -sDEVICE=pdfwrite \
         -q \
@@ -163,6 +169,8 @@ squeeze() {
         -dSAFER \
         -dPDFSETTINGS=/prepress \
         -dImageResolution=300 \
+        -dFirstPage=1 \
+        -dLastPage=1 \
         -sOutputFile="$output_file" \
         -c '<</NeverEmbed []>> setdistillerparams' \
         -f "$input_file" \
