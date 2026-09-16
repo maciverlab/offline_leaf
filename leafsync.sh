@@ -388,6 +388,7 @@ resolve_figures_base_dir() {
 
 new_project() {
     local id name base figbase project_dir repo fig_dir sane
+    local d existing_repo committed_subpath subpath drive_match
 
     id="$(ask 'Overleaf project ID: ')"
     case "$id" in
@@ -400,21 +401,104 @@ new_project() {
 
     base="$(resolve_base_dir)" || exit 1
     figbase="$(resolve_figures_base_dir)" || exit 1
-    project_dir="$base/${sane}_${id}"
-    repo="$project_dir/$id"           # flatter layout: clone dir named <id>
-    # Shared figure tree, deliberately NOT under the clone: see resolve_*_dir.
-    # Its project-relative tail, "${sane}_${id}/figures/watched/", is what goes
-    # into the committed config -- the base is per-machine and stays local.
-    fig_dir="$figbase/${sane}_${id}"
 
-    # An existing figure tree is the normal case on a second machine (the cloud
-    # folder already synced it) and on a re-run, so it is not worth a prompt --
-    # every mkdir below is a no-op then, and no master file is touched. Only an
-    # occupied clone path that is not a checkout needs asking about.
+    # A project is identified by its Overleaf ID, never by the name typed above.
+    # The name only decorates directory names, so entering a different one on a
+    # second machine must NOT create a second clone or a second figure tree --
+    # that is how one project ends up with two trees on the shared drive, only
+    # one of which holds the masters.
+    #
+    # So: adopt an existing clone for this ID whatever it happens to be called.
+    # The clone's directory name is cosmetic (GIT_PATH is derived from where the
+    # config file sits), so a name mismatch here is harmless and not worth
+    # relocating.
+    existing_repo=""
+    for d in "$base"/*_"$id"; do
+        [ -d "$d/$id/.git" ] && { existing_repo="$d/$id"; break; }
+    done
+    if [ -n "$existing_repo" ]; then
+        repo="$existing_repo"
+        [ "$repo" = "$base/${sane}_${id}/$id" ] \
+            || info "Using the existing clone for $id: $repo"
+    else
+        project_dir="$base/${sane}_${id}"
+        repo="$project_dir/$id"       # flatter layout: clone dir named <id>
+    fi
+
     if [ -e "$repo" ] && [ ! -d "$repo/.git" ]; then
         local ov; ov="$(ask "Path exists but is not a clone: $repo -- continue anyway? [y/N]: ")"
         case "$ov" in y|Y) ;; *) die "Aborted." ;; esac
     fi
+
+    # Clone BEFORE choosing the figure tree: the clone carries the committed
+    # offleaf_config.sh, whose FIGURES_SUBPATH is the authoritative answer to
+    # "where does this project keep its masters".
+    if [ -d "$repo/.git" ]; then
+        info "Clone already present at $repo -- skipping clone."
+    else
+        info "Cloning Overleaf project $id ..."
+        git clone "$GIT_REMOTE_BASE/$id" "$repo" || die "git clone failed."
+    fi
+
+    # Recommended git settings for the Overleaf gitsync workflow.
+    git -C "$repo" config pull.rebase false
+    git -C "$repo" config http.postBuffer 10485760
+
+    ensure_gitignore "$repo"
+
+    # The committed FIGURES_SUBPATH wins over the name just typed.
+    committed_subpath=""
+    [ -f "$repo/offleaf_config.sh" ] && committed_subpath="$(
+        sed -n 's/^FIGURES_SUBPATH="\(.*\)"$/\1/p' "$repo/offleaf_config.sh" | head -1)"
+
+    if [ -n "$committed_subpath" ]; then
+        subpath="$committed_subpath"
+        if [ "$subpath" != "${sane}_${id}/figures/watched/" ]; then
+            info ""
+            warn "This project's figure tree was already set, on another machine, to:"
+            warn "  ${subpath%%/*}"
+            warn "The name you entered (\"$sane\") would give:"
+            warn "  ${sane}_${id}"
+            info ""
+            info "Keeping the committed one -- that is what holds your masters, and"
+            info "rewriting it would point every machine at an empty tree."
+            local rn
+            rn="$(ask "Type 'rename' to change it everywhere instead, or Enter to keep: ")"
+            if [ "$rn" = "rename" ]; then
+                if [ -e "$figbase/${sane}_${id}" ]; then
+                    warn "$figbase/${sane}_${id} already exists; not moving anything."
+                    warn "Keeping the committed tree."
+                else
+                    if [ -d "$figbase/${subpath%%/*}" ]; then
+                        info "Moving the figure tree to ${sane}_${id} ..."
+                        mv "$figbase/${subpath%%/*}" "$figbase/${sane}_${id}" \
+                            || die "Could not move the figure tree."
+                    fi
+                    subpath="${sane}_${id}/figures/watched/"
+                fi
+            fi
+        fi
+    else
+        # No committed value yet, but the drive may already hold a tree for this
+        # ID under a different name -- adopt it rather than making a second one.
+        drive_match=""
+        for d in "$figbase"/*_"$id"; do
+            [ -d "$d/figures/watched" ] && { drive_match="$(basename "$d")"; break; }
+        done
+        if [ -n "$drive_match" ] && [ "$drive_match" != "${sane}_${id}" ]; then
+            warn "A figure tree for $id already exists on the shared drive:"
+            warn "  $drive_match"
+            info "Adopting it instead of creating a second tree."
+            subpath="$drive_match/figures/watched/"
+        else
+            subpath="${sane}_${id}/figures/watched/"
+        fi
+    fi
+
+    # Shared figure tree, deliberately NOT under the clone: see resolve_*_dir.
+    # Only its project-relative tail goes into the committed config; the base is
+    # per-machine and stays local.
+    fig_dir="$figbase/${subpath%/figures/watched/}"
 
     if [ -d "$fig_dir/figures/watched" ]; then
         info "Figure tree already present at $fig_dir/figures -- leaving it as is."
@@ -429,25 +513,18 @@ new_project() {
         "$fig_dir/figures/watched/prepress_pdf" \
         "$fig_dir/figures/watched/prepress_vector" || die "mkdir failed."
 
-    if [ -d "$repo/.git" ]; then
-        info "Clone already present at $repo -- skipping clone."
+    # Only write the config when it would actually change something, so a second
+    # machine cannot clobber the first machine's value just by running setup.
+    if [ "$committed_subpath" = "$subpath" ]; then
+        info "Committed offleaf_config.sh already points at $subpath -- leaving it as is."
     else
-        info "Cloning Overleaf project $id ..."
-        git clone "$GIT_REMOTE_BASE/$id" "$repo" || die "git clone failed."
+        info "Writing offleaf_config.sh ..."
+        write_project_config "$repo/offleaf_config.sh" "$subpath" "$id" \
+            || die "Could not write config."
+        git -C "$repo" add offleaf_config.sh
+        git -C "$repo" commit -m "changes to configuration" >/dev/null 2>&1
+        git -C "$repo" push >/dev/null 2>&1
     fi
-
-    # Recommended git settings for the Overleaf gitsync workflow.
-    git -C "$repo" config pull.rebase false
-    git -C "$repo" config http.postBuffer 10485760
-
-    ensure_gitignore "$repo"
-
-    info "Writing offleaf_config.sh ..."
-    write_project_config "$repo/offleaf_config.sh" "${sane}_${id}/figures/watched/" "$id" \
-        || die "Could not write config."
-    git -C "$repo" add offleaf_config.sh
-    git -C "$repo" commit -m "changes to configuration" >/dev/null 2>&1
-    git -C "$repo" push >/dev/null 2>&1
 
     ensure_pushed_figure_dirs "$repo"
 

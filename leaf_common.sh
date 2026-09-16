@@ -10,9 +10,12 @@ function relative_path() {
 
 
 # How many times to retry a push that was rejected because the remote moved,
-# and how long to wait between attempts. Overridable from offleaf_config.sh.
+# and how long to wait between attempts. PUSH_RETRY_SLEEP is the FIRST wait;
+# each later one doubles it, up to PUSH_RETRY_MAX_SLEEP. Overridable from
+# offleaf_config.sh.
 PUSH_MAX_ATTEMPTS=${PUSH_MAX_ATTEMPTS:-5}
 PUSH_RETRY_SLEEP=${PUSH_RETRY_SLEEP:-3}
+PUSH_RETRY_MAX_SLEEP=${PUSH_RETRY_MAX_SLEEP:-30}
 
 # True if the push failed only because the remote has commits we do not have
 # (a non-fast-forward rejection), rather than for some other reason such as
@@ -52,7 +55,7 @@ function has_unmerged_paths {
 #          2 gave up (retries exhausted, or a failure retrying cannot fix).
 # Leaves the last relevant git output in PUSH_OUTPUT.
 function push_with_retry {
-    local attempt=1 rc
+    local attempt=1 rc delay half
     while :; do
         PUSH_OUTPUT=$(git -C "$GIT_PATH" push 2>&1)
         rc=$?
@@ -72,8 +75,18 @@ function push_with_retry {
             return 1
         fi
         date > "$last_successful_pull"
+        # Exponential backoff with jitter. A FIXED delay is precisely the problem
+        # it replaces: Overleaf's bridge mints a commit every few seconds while
+        # anyone is typing, so retrying on a fixed ~3s beat runs in lock step
+        # with the remote and loses every race -- observed losing 5 for 5 against
+        # a burst of 8 commits in 31s. Doubling the wait, and randomising its
+        # second half, pulls the retries out of phase and outlasts the burst,
+        # which is always short.
+        delay=$(( PUSH_RETRY_SLEEP << (attempt - 1) ))
+        [ "$delay" -gt "$PUSH_RETRY_MAX_SLEEP" ] && delay=$PUSH_RETRY_MAX_SLEEP
+        half=$(( delay / 2 )); [ "$half" -lt 1 ] && half=1
+        sleep $(( half + RANDOM % (half + 1) ))
         attempt=$((attempt + 1))
-        sleep "$PUSH_RETRY_SLEEP"
     done
 }
 

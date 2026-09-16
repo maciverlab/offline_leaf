@@ -58,6 +58,31 @@ source "${SCRIPT_DIR}/leaf_common.sh"
 HASH_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/leafsync/hashes/${OVERLEAF_ID:-default}"
 mkdir -p "$HASH_DIR"
 
+# Refuse to run against a watch path that does not exist. Without this check the
+# failure is completely silent: fswatch sits on a missing directory without
+# erroring or exiting, and reconcile_startup's find sends its error to
+# /dev/null and then reports "No figure masters need reconciling" -- so figleaf
+# prints a healthy startup while being structurally unable to see any figure.
+# Reachable whenever FIGURES_SUBPATH is wrong, the cloud folder has not synced,
+# or the drive is not mounted.
+if [ -z "$WATCH_PATH_CONVERT" ]; then
+    echo "WATCH_PATH_CONVERT is empty -- check FIGURES_BASE_DIR and FIGURES_SUBPATH." >&2
+    echo "Nothing would be watched, so refusing to start." >&2
+    exit 1
+fi
+if [ ! -d "$WATCH_PATH_CONVERT" ]; then
+    echo "The figure directory to watch does not exist:" >&2
+    echo "  $WATCH_PATH_CONVERT" >&2
+    echo "Check FIGURES_SUBPATH in this project's offleaf_config.sh, and that the" >&2
+    echo "shared drive is mounted and synced. Refusing to start." >&2
+    exit 1
+fi
+# An empty tree is legitimate for a brand-new project, so warn rather than exit.
+if [ -z "$(find "$WATCH_PATH_CONVERT" -type f \( -name '*.ai' -o -name '*.pdf' \) -print -quit 2>/dev/null)" ]; then
+    echo "Warning: no .ai/.pdf masters found under $WATCH_PATH_CONVERT."
+    echo "Watching it anyway; nothing will be pushed until a master appears there."
+fi
+
 # Stop the watcher we started. fswatch can sit blocked in the FSEvents run loop
 # and ignore SIGTERM, so escalate to SIGKILL rather than let "wait" hang the
 # caller forever; a plain kill+wait would turn Ctrl-C into a hang.
