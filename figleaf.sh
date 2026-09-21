@@ -251,6 +251,8 @@ CONSUMED_BYTES=0
 # single pass instead of processing the first batch while more still arrive.
 LAST_TOTAL_BYTES=0
 QUIET_SINCE=0
+# When the idle path last retried stranded commits (see flush_pending_commits).
+LAST_FLUSH=0
 
 # Catch up on masters edited while figleaf was NOT running. fswatch only
 # reports events that occur after it starts, so on launch we scan the watched
@@ -512,6 +514,15 @@ while true; do
         # Sleep for the specified interval before the next commit
         sleep "$COMMIT_INTERVAL_SECONDS"
     else
+        # Nothing to convert. Use the lull to push anything an exhausted retry
+        # left stranded -- without this, surviving a failed push is not enough:
+        # the commit would sit locally until some later figure edit happened to
+        # carry it up. Throttled, because it is a network round trip and this
+        # loop runs every POLL_INTERVAL_SECONDS.
+        if [[ "$2" == "-push" ]] && (( SECONDS - LAST_FLUSH >= FLUSH_INTERVAL_SECONDS )); then
+            LAST_FLUSH=$SECONDS
+            flush_pending_commits
+        fi
         # Poll again after a pause. A longer interval means fewer CPU wakeups
         # (better battery); worst-case latency to notice a new edit is about
         # POLL_INTERVAL_SECONDS plus the debounce.

@@ -13,9 +13,12 @@ function relative_path() {
 # and how long to wait between attempts. PUSH_RETRY_SLEEP is the FIRST wait;
 # each later one doubles it, up to PUSH_RETRY_MAX_SLEEP. Overridable from
 # offleaf_config.sh.
-PUSH_MAX_ATTEMPTS=${PUSH_MAX_ATTEMPTS:-5}
+PUSH_MAX_ATTEMPTS=${PUSH_MAX_ATTEMPTS:-6}
 PUSH_RETRY_SLEEP=${PUSH_RETRY_SLEEP:-3}
-PUSH_RETRY_MAX_SLEEP=${PUSH_RETRY_MAX_SLEEP:-30}
+PUSH_RETRY_MAX_SLEEP=${PUSH_RETRY_MAX_SLEEP:-60}
+
+# How often the idle loop retries commits stranded by an exhausted push.
+FLUSH_INTERVAL_SECONDS=${FLUSH_INTERVAL_SECONDS:-60}
 
 # True if the push failed only because the remote has commits we do not have
 # (a non-fast-forward rejection), rather than for some other reason such as
@@ -99,6 +102,33 @@ function now_stamp {
     printf '%s %s' "${s% *}" "$(printf '%s' "${s##* }" | tr '[:upper:]' '[:lower:]')"
 }
 
+# Push commits that an earlier exhausted retry left stranded locally. Called
+# from the idle path, so it only ever runs when there is no figure to process.
+# Cheap and silent when there is nothing pending: one revision count, no network.
+#
+# Returns 0 if nothing was pending or everything was pushed, 1 otherwise.
+function flush_pending_commits {
+    local ahead
+    ahead=$(git -C "$GIT_PATH" rev-list --count '@{u}'..HEAD 2>/dev/null) || return 0
+    case "$ahead" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$ahead" -eq 0 ] && return 0
+    echo
+    echo "$ahead commit(s) still waiting to reach $OVERLEAF_ID; retrying now."
+    push_with_retry
+    case $? in
+        0) echo -e "${RED}Pending commits reached $OVERLEAF_ID on $(now_stamp).${RESET}"
+           echo
+           return 0 ;;
+        1) echo -e "${RED}A genuine conflict is blocking the pending commits;"
+           echo -e "resolve it by hand in $GIT_PATH.${RESET}"
+           echo
+           return 1 ;;
+        *) echo "Overleaf still busy; will try again in ${FLUSH_INTERVAL_SECONDS}s."
+           echo
+           return 1 ;;
+    esac
+}
+
 function git_operations {
     local apply_stash=$1 # First argument is now the apply_stash flag
     shift # Shift the arguments so $1 and onwards are as before
@@ -178,9 +208,18 @@ function git_operations {
             echo -e "${RED}Push to $OVERLEAF_ID did not succeed; will retry.${RESET}"
             return 1
         fi
-        echo -e "${RED}Push to $OVERLEAF_ID failed and retrying did not help: exiting.${RESET}"
-        echo "$output"
-        exit
+        # Do NOT exit. The commit is already safe in the local repository, and
+        # a lost push race is transient: Overleaf's bridge mints a commit every
+        # few seconds while anyone types, so the remote simply moved under us
+        # again. Exiting turned a delay of a minute into a dead watcher that
+        # silently stopped syncing until a human noticed. The caller treats a
+        # non-zero return as "not pushed", so the figure's hash is not recorded
+        # and it will be retried; flush_pending_commits pushes the commit itself
+        # once the project goes quiet.
+        echo -e "${RED}Push to $OVERLEAF_ID did not succeed after $PUSH_MAX_ATTEMPTS attempts"
+        echo -e "on $(now_stamp). Overleaf is busy; the commit is safe locally and will be"
+        echo -e "pushed automatically once the project goes quiet. Still watching.${RESET}"
+        return 2
     fi
 
     # push_status 1: a genuine conflict. The merge was aborted, so the tree is
