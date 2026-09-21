@@ -20,6 +20,12 @@ PUSH_RETRY_MAX_SLEEP=${PUSH_RETRY_MAX_SLEEP:-60}
 # How often the idle loop retries commits stranded by an exhausted push.
 FLUSH_INTERVAL_SECONDS=${FLUSH_INTERVAL_SECONDS:-60}
 
+# Quiescence gate: how long Overleaf's ref must hold still before we treat the
+# moment as a gap worth pushing into, and the longest we will wait for one
+# before pushing anyway. Set PUSH_QUIET_SECONDS=0 to disable the gate.
+PUSH_QUIET_SECONDS=${PUSH_QUIET_SECONDS:-4}
+PUSH_QUIET_MAX_WAIT=${PUSH_QUIET_MAX_WAIT:-30}
+
 # True if the push failed only because the remote has commits we do not have
 # (a non-fast-forward rejection), rather than for some other reason such as
 # authentication, a network failure, or a rejecting hook. Retrying helps only
@@ -44,6 +50,34 @@ function is_non_fast_forward {
 # only matched the string "failed to push", which git prints for both.
 function has_unmerged_paths {
     [ -n "$(git -C "$GIT_PATH" ls-files --unmerged)" ]
+}
+
+# Wait until the Overleaf ref stops moving, then return so the caller can pull
+# and push into the gap.
+#
+# This measures contention instead of guessing at it. A blind sleep is a bet on
+# the remote being quiet when it expires; ls-remote is a cheap, ref-only network
+# call that simply asks. Under no contention it costs one quiet interval; under
+# contention it returns the moment a real gap opens, rather than burning a whole
+# backoff step and then colliding again.
+#
+# $1 seconds the ref must hold still, $2 total budget. Returns 0 once quiet,
+# 1 if the budget ran out (caller should go ahead and try regardless).
+function wait_for_quiet_remote {
+    local quiet="${1:-$PUSH_QUIET_SECONDS}" budget="${2:-$PUSH_QUIET_MAX_WAIT}"
+    local waited=0 prev cur
+    [ "$quiet" -le 0 ] && return 0
+    prev=$(git -C "$GIT_PATH" ls-remote origin HEAD 2>/dev/null | awk '{print $1}')
+    [ -z "$prev" ] && return 1        # cannot reach the remote; let the push report it
+    while [ "$waited" -lt "$budget" ]; do
+        sleep "$quiet"
+        waited=$((waited + quiet))
+        cur=$(git -C "$GIT_PATH" ls-remote origin HEAD 2>/dev/null | awk '{print $1}')
+        [ -z "$cur" ] && return 1
+        [ "$cur" = "$prev" ] && return 0
+        prev="$cur"
+    done
+    return 1
 }
 
 # Push, pulling and retrying when the remote moved under us.
@@ -87,8 +121,14 @@ function push_with_retry {
         # which is always short.
         delay=$(( PUSH_RETRY_SLEEP << (attempt - 1) ))
         [ "$delay" -gt "$PUSH_RETRY_MAX_SLEEP" ] && delay=$PUSH_RETRY_MAX_SLEEP
-        half=$(( delay / 2 )); [ "$half" -lt 1 ] && half=1
-        sleep $(( half + RANDOM % (half + 1) ))
+        # Spend the backoff budget WAITING FOR A GAP rather than sleeping blind:
+        # returns early the moment Overleaf stops moving, and otherwise costs the
+        # same as the sleep it replaces. Falls back to a jittered sleep if the
+        # gate is disabled or the remote is unreachable.
+        if ! wait_for_quiet_remote "$PUSH_QUIET_SECONDS" "$delay"; then
+            half=$(( delay / 2 )); [ "$half" -lt 1 ] && half=1
+            [ "$PUSH_QUIET_SECONDS" -le 0 ] && sleep $(( half + RANDOM % (half + 1) ))
+        fi
         attempt=$((attempt + 1))
     done
 }
@@ -132,6 +172,7 @@ function flush_pending_commits {
 function git_operations {
     local apply_stash=$1 # First argument is now the apply_stash flag
     shift # Shift the arguments so $1 and onwards are as before
+    local f rel_files
     REPOSITORY_URL=$(git -C "$GIT_PATH" remote get-url "origin")
     git ls-remote $REPOSITORY_URL &> /dev/null
 
@@ -168,11 +209,22 @@ function git_operations {
         exit
     fi
 
-    rel_file=$(relative_path "$GIT_PATH" "$1")
+    # Every path we were given, staged together so one figure costs ONE commit
+    # and ONE push. Pushing the PDF and the JPG separately made each figure two
+    # independent races against Overleaf, so the chance of a figure arriving
+    # whole was the SQUARE of the chance of winning one race -- which is why
+    # figures kept landing half-synced, the vector in and the bitmap missing.
+    rel_files=()
+    for f in "$@"; do
+        [ -n "$f" ] || continue
+        rel_files+=("$(relative_path "$GIT_PATH" "$f")")
+    done
+    # Human-readable list for commit messages and notices.
+    rel_file=$(printf '%s, ' "${rel_files[@]}"); rel_file=${rel_file%, }
 
-    git -C "$GIT_PATH" add "$rel_file"
+    git -C "$GIT_PATH" add -- "${rel_files[@]}"
     if [[ $? -ne 0 ]]; then
-        echo "Error adding file $1 to the repository."
+        echo "Error adding $rel_file to the repository."
     fi
 
     # Only commit if the add actually staged something. Otherwise git prints a
@@ -233,7 +285,7 @@ function git_operations {
             date > "$last_successful_pull"
         fi
         git -C "$GIT_PATH" stash apply 0
-        git -C "$GIT_PATH" add "$rel_file"
+        git -C "$GIT_PATH" add -- "${rel_files[@]}"
         git -C "$GIT_PATH" commit -m "[Auto] Update $rel_file"
         git -C "$GIT_PATH" push
         echo " "

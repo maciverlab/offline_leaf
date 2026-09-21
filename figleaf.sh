@@ -386,6 +386,10 @@ while true; do
             # processed after a failed push would mean it is never retried,
             # and Overleaf would silently keep the stale version.
             push_ok=1
+            # Which halves of this figure are staged in the clone and
+            # awaiting the single push below.
+            vector_staged=0
+            bitmap_staged=0
             # Copy the .ai file to VECTOR_UPLOAD with a .pdf extension
             mkdir -p "$COPY_PATH_pdf"
             if ! cp "$file" "$COPY_PATH_pdf$filename.pdf"; then
@@ -413,21 +417,9 @@ while true; do
                     echo
                 else
                     echo "$short_path2 copied to local Overleaf repo directory $short_path3 to push to cloud."
-                    git_operations 0 "$COPY_PATH_vector_push$filename.pdf"
-                    if [ $? -ne 0 ]; then
-                        push_ok=0
-                        echo
-                        echo -e "${RED}Push of $filename.pdf to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
-                        echo
-                    else
-                        echo "Committing file: $COPY_PATH_vector_push$filename.pdf"
-                        echo
-                        echo -e "${RED}Commit of $filename.pdf to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
-                        echo
-                    fi
+                    vector_staged=1
                 fi
             fi
-
             # Generate bitmap file
             outputfile="${TEMP_PATH}${filename}.jpg"
             bitmap_ok=1
@@ -457,10 +449,6 @@ while true; do
             [ "$bitmap_ok" -eq 1 ] || push_ok=0
 
             if [[ "$2" == "-push" ]] && [ "$bitmap_ok" -eq 1 ]; then
-                # Small buffer between the two pushes. git_operations is
-                # synchronous (the PDF push has already finished here), so this
-                # is just a brief spacer between successive pushes to Overleaf.
-                sleep 2
                 # See the note above the vector push: this directory can also be
                 # removed by a pull that deletes the last file tracked in it.
                 mkdir -p "$COPY_PATH_bitmap_push"
@@ -474,16 +462,30 @@ while true; do
                     echo
                 else
                     echo "$short_path5 copied to $short_path6 for push to Overleaf"
-                    echo "Committing file: $COPY_PATH_bitmap_push$filename.jpg"
-                    git_operations 0 "$COPY_PATH_bitmap_push$filename.jpg"
-                    if [ $? -ne 0 ]; then
-                        push_ok=0
-                        echo
-                        echo -e "${RED}Push of $filename.jpg to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
-                    else
-                        echo
-                        echo -e "${RED}Commit of $filename.jpg to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
-                    fi
+                    bitmap_staged=1
+                fi
+            fi
+
+            # ONE commit and ONE push carrying both halves of the figure. Pushing
+            # them separately made every figure two independent races against
+            # Overleaf's moving ref, so a figure arrived whole only if BOTH races
+            # were won -- the square of one race's odds, and the reason figures
+            # kept landing with the vector in and the bitmap missing.
+            if [[ "$2" == "-push" ]] && { [ "$vector_staged" -eq 1 ] || [ "$bitmap_staged" -eq 1 ]; }; then
+                push_these=()
+                [ "$vector_staged" -eq 1 ] && push_these+=("$COPY_PATH_vector_push$filename.pdf")
+                [ "$bitmap_staged" -eq 1 ] && push_these+=("$COPY_PATH_bitmap_push$filename.jpg")
+                echo "Committing ${#push_these[@]} file(s) for $filename ..."
+                git_operations 0 "${push_these[@]}"
+                if [ $? -ne 0 ]; then
+                    push_ok=0
+                    echo
+                    echo -e "${RED}Push of $filename to $OVERLEAF_ID did NOT complete on $(now_stamp).${RESET}"
+                    echo
+                else
+                    echo
+                    echo -e "${RED}Commit of $filename to $OVERLEAF_ID completed on $(now_stamp).${RESET}"
+                    echo
                 fi
             fi
             echo
