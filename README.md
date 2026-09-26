@@ -120,7 +120,26 @@ can't, it prints the two commands for you to run in two terminals yourself. The
 first time it opens a window, macOS may ask permission to control your terminal.
 
 Use option 4 to convert figures locally without pushing. Stop a watcher with
-**Ctrl-C** in its terminal.
+**Ctrl-C** in its terminal, or by closing the window — both clean up the
+`fswatch` child and the scratch files.
+
+> `fswatch` used to be left behind on every exit, reparented to `launchd` and
+> still recursively watching a cloud-synced folder forever; four had accumulated
+> over a month. Closing the window was the main culprit, because it sends
+> `SIGHUP`, which killed bash without running a `SIGINT`-only trap. The watchers
+> now trap `SIGINT`, `SIGTERM` and `SIGHUP`, and escalate to `SIGKILL` if
+> `fswatch` ignores the first signal (it can sit blocked in the FSEvents run
+> loop). If you have strays from an older version, `pgrep -x fswatch` will show
+> them — any with a parent PID of 1 is an orphan.
+
+**Editing these scripts while they are running will break the running copy.**
+bash reads a script from disk as it executes, tracking a byte offset, so
+changing the file underneath a live watcher makes it resume at an offset that no
+longer means anything — producing a syntax error on a line that may not even
+exist in the version that started. Pull or edit, *then* restart. This also
+matters because a running watcher reads `offleaf_config.sh` and
+`leaf_common.sh` only once, at startup: a config fix or a script update has no
+effect until you restart it.
 
 ---
 
@@ -182,6 +201,31 @@ tree untouched and clones fresh locally.
   (`-dPDFSETTINGS=/prepress`), renders a JPG with ImageMagick, and — in push
   mode — commits/pushes the PDF to `figures/vector/` and the JPG to
   `figures/bitmap/` in the Overleaf repo.
+- **Only the first artboard is published.** An Illustrator `.ai` saved with PDF
+  compatibility *is* a PDF, so a master with N artboards arrives as an N-page
+  PDF. Both outputs are cropped to page one — the JPG via ImageMagick's `[0]`
+  selector, the PDF via Ghostscript's `-dFirstPage=1 -dLastPage=1`. The document
+  shows one image per figure (`\includegraphics` with no `page=`), so the other
+  artboards could never be displayed, and shipping them bloated every push: one
+  7-artboard figure went from 7 pages and 1.5 MB to 1 page and 392 KB.
+  If a master's later artboards are real content, split it into separate files.
+
+  > Before this, a multi-page master produced no bitmap at all. ImageMagick
+  > writes one file per page as `<name>-0.jpg`, `<name>-1.jpg`, … and never
+  > `<name>.jpg`, so the move that followed failed and the figure was silently
+  > left without its JPG.
+- **One commit and one push per figure.** The PDF and the JPG are staged
+  together and pushed once. Pushing them separately made every figure two
+  independent races against Overleaf's moving ref, so a figure arrived whole
+  only if *both* were won — the square of one race's odds, and the reason
+  figures used to land half-synced with the vector in and the bitmap missing.
+- **It refuses to start if it has nothing to watch.** An empty or nonexistent
+  `WATCH_PATH_CONVERT` is reported and figleaf exits instead of running blind.
+  That failure used to be silent and total: `fswatch` sits on a missing
+  directory without erroring, and startup reconciliation sent `find`'s error to
+  `/dev/null`, so figleaf printed a healthy startup — including "No figure
+  masters need reconciling" — while being structurally unable to see a figure.
+  An existing-but-empty tree only warns; that is normal for a new project.
 - **Change detection is content-based.** figleaf keeps a per-project hash of the
   last-processed content of each master (under `~/.config/leafsync/hashes/<id>/`,
   persistent across runs). A figure is only reconverted/pushed when its content
@@ -230,13 +274,33 @@ active this is routine rather than exceptional. Nothing is conflicted: the files
 the scripts write (`figures/*`, or one `.tex`) are not the ones the collaborator
 touched. The fix is simply to pull and push again.
 
-Both scripts now do that automatically, retrying up to `PUSH_MAX_ATTEMPTS` times
-with `PUSH_RETRY_SLEEP` seconds between attempts (defaults `5` and `3`; override
-either in `offleaf_config.sh`). Two shapes of rejection are recognised: the usual
-non-fast-forward, and the tighter race where the remote advances while the push
-is in flight (`cannot lock ref … is at X but expected Y`). A failure that
-retrying cannot fix — authentication, network, a rejecting hook — is reported
-immediately rather than retried.
+Both scripts retry automatically, up to `PUSH_MAX_ATTEMPTS` times. Two shapes of
+rejection are recognised: the usual non-fast-forward, and the tighter race where
+the remote advances while the push is in flight (`cannot lock ref … is at X but
+expected Y`). A failure that retrying cannot fix — authentication, network, a
+rejecting hook — is reported immediately rather than retried.
+
+Three things make the retry work in practice:
+
+- **Exponential backoff with jitter.** The wait doubles each attempt (from
+  `PUSH_RETRY_SLEEP`, capped at `PUSH_RETRY_MAX_SLEEP`) and its second half is
+  randomised. A *fixed* delay was the original problem: the bridge commits every
+  few seconds, so retrying on a fixed 3-second beat ran in lock step with the
+  remote and lost every race — observed losing 5 for 5 against a burst of 8
+  commits in 31 seconds.
+- **It waits for a gap instead of guessing at one.** Before retrying, the
+  scripts poll `git ls-remote` (a cheap, ref-only call) until Overleaf's ref
+  holds still for `PUSH_QUIET_SECONDS`, then pull and push into that gap. This
+  spends the same backoff budget but returns the moment a real gap opens.
+  Set `PUSH_QUIET_SECONDS=0` to disable the gate and use the blind sleep.
+- **Running out of attempts is not fatal.** figleaf reports it and keeps
+  watching. The commit is already safe in the local clone, so nothing is lost;
+  when the project next goes quiet, the idle loop pushes it (at most
+  `FLUSH_INTERVAL_SECONDS` later) and says so.
+
+  > This one used to call `exit`. A transient, self-healing race killed the
+  > watcher, turning a delay of a minute into a sync that had silently stopped
+  > until somebody noticed figleaf was gone.
 
 > Earlier versions treated *any* push failure as a merge conflict, because the
 > check matched the string `failed to push`, which git prints in both cases.
@@ -292,8 +356,12 @@ Other settings (sensible defaults shown):
 | `GIT_PULL_INTERVAL_SECONDS` | `90` | Background pull interval (offleaf); higher = fewer network wakeups |
 | `DEBOUNCE_SECONDS` | `5` | Quiet period after an edit before processing (so one save = one commit) |
 | `POLL_INTERVAL_SECONDS` | `3` | How often the loop wakes when idle; higher = better battery |
-| `PUSH_MAX_ATTEMPTS` | `5` | Attempts before giving up on a push the remote keeps rejecting |
-| `PUSH_RETRY_SLEEP` | `3` | Seconds between those attempts |
+| `PUSH_MAX_ATTEMPTS` | `6` | Attempts before deferring a push the remote keeps rejecting |
+| `PUSH_RETRY_SLEEP` | `3` | First wait between attempts; each later one doubles |
+| `PUSH_RETRY_MAX_SLEEP` | `60` | Cap on that doubling |
+| `PUSH_QUIET_SECONDS` | `4` | How long Overleaf's ref must hold still to count as a gap; `0` disables the gate |
+| `PUSH_QUIET_MAX_WAIT` | `30` | Longest wait for a gap before pushing anyway |
+| `FLUSH_INTERVAL_SECONDS` | `60` | How often the idle loop retries commits a deferred push left behind |
 | `DEBUG` | `0` | Set to `1` for verbose diagnostics |
 
 > **Note:** because `offleaf_config.sh` is machine-independent, a collaborator
@@ -311,6 +379,18 @@ Other settings (sensible defaults shown):
 - `hashes/<id>/` — figleaf's persistent per-project content hashes.
 - `locks/` — per-project run locks (so you don't accidentally start two
   watchers on the same project).
+- `run/` — scratch files for running watchers (the `fswatch` event stream and
+  the last-successful-pull marker).
+
+  > These used to live in `/tmp`, which macOS sweeps nightly via
+  > `/usr/libexec/tmp_cleaner`: it deletes anything whose atime, mtime *and*
+  > ctime are all more than three days old. Both files are only touched when a
+  > figure changes, and the poll loop reads the event file with `wc -c` — an
+  > `fstat` that does not refresh atime — so a quiet stretch of a few days was
+  > enough for the cleaner to delete them out from under a *running* watcher.
+  > `fswatch` then kept writing to an unlinked inode and no change was ever seen
+  > again. The watchers now also rebuild these files and restart `fswatch` if
+  > they vanish anyway.
 
 Deleting `hashes/<id>/` makes the next figleaf run do a full initial sync again.
 
@@ -331,6 +411,58 @@ local to each machine and is not shared this way. Workflow:
 This works as long as **two people don't edit the same watched master at the
 same time** — because figures are binary, that produces conflicts that can't be
 auto-merged. Coordinate who "owns" a figure while editing it.
+
+### Run figleaf on one machine per project
+
+Two figleaf instances on the same project watch the same shared figure tree and
+both push, so they race each other as well as Overleaf, and both convert the
+same masters. Pick one machine to push figures from; run `offleaf.sh` on the
+others. Nothing in the code enforces this.
+
+`leafsync.sh` does now protect the *setup* half of that mistake. A project is
+identified by its Overleaf ID, never by the name you type at the prompt, so
+entering a different name on a second machine no longer creates a second figure
+tree or a second config. An existing clone or figure tree for that ID is adopted
+whatever it is named, and the committed `FIGURES_SUBPATH` wins over the name you
+typed; renaming requires explicit confirmation and moves the tree.
+
+> Previously, entering a different name on a second machine created a whole
+> second tree on the shared drive — empty, since the masters are in the first
+> one — and overwrote the committed config to point *every* machine at it. The
+> symptom was a watcher that started cleanly and never saw a figure again.
+
+### Simultaneous editors are the real limit
+
+Overleaf's git bridge gives one serialised ref to two unrelated activities:
+people typing prose, and figleaf delivering binaries. A push is a
+compare-and-swap on that ref, and the costs are asymmetric — one attempt costs
+6–9 seconds (pull, then push multi-megabyte binaries), while the bridge mints a
+commit every few seconds for free, per active typist.
+
+If each editor produces a bridge commit every ~τ seconds and a push cycle takes
+W, one attempt survives with probability roughly `e^(−N·W/τ)`. With measured
+W ≈ 7 s and τ ≈ 7 s:
+
+| Simultaneous editors | A figure lands (6 attempts) |
+| --- | --- |
+| 1 | ~80% |
+| 2 | ~50% |
+| 3 | ~20% |
+| 4 | ~5% |
+
+The retry machinery above makes a lost race a **delay** rather than a failure —
+the commit waits locally and goes up at the next lull — but it cannot raise
+those odds much, and no amount of tuning will: bursts can always be longer, and
+contention grows with the number of people typing. Expect figure delivery to be
+late, sometimes very late, during a busy multi-editor session.
+
+The structural fix is to stop making figures contend with prose on one ref:
+put figures in a **separate Overleaf project** referenced by cross-project file
+linking, or use Overleaf's linked-files-from-external-source feature, so figure
+delivery never touches the prose repo. That also stops the prose repo
+accumulating a permanent binary blob for every version of every figure — worth
+watching, since a project's `.git` can reach hundreds of megabytes this way and
+Overleaf enforces repository size limits.
 
 ---
 
